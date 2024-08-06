@@ -1,4 +1,4 @@
-classdef IEEE802_11a_Receiver
+classdef IEEE802_11a_Receiver < handle
 
     %% properties
     properties(Access = public)
@@ -48,7 +48,8 @@ classdef IEEE802_11a_Receiver
       
        N_DSc = 48;          % Number of Data Subcarriers
        N_PSc = 4;           % Number of Pilots Subcarriers
-       N_TSc = obj.N_DSc+obj.N_PSc; % Number of Total Used Subcarriers
+       %N_TSc = obj.N_DSc+obj.N_PSc; % Number of Total Used Subcarriers
+       N_TSc = 52;
        FFT_Size =64;        % Number of Total Subcarriers & FFT Size
       
        T_FFT = 3.2e-6;      % us IFFT/FFT Period
@@ -58,9 +59,9 @@ classdef IEEE802_11a_Receiver
        T_GI = 0.8e-6;       % us Guard Interval
        T_Sym = 4e-6;        % us OFDM Symbol Duration
       
-       OFDM_Samples = obj.T_Sym*obj.Sampling_Freq;      % 4 u-sec
-       GI_samples = obj.T_GI*obj.Sampling_Freq;         % 0.8 u-sec
-       Preamble_samples = obj.T_Preamble*obj.Sampling_Freq;     % 16 u-sec
+       OFDM_Samples = 4e-6*20e6;         % 4 u-sec
+       GI_samples = 0.8e-6*20e6;         % 0.8 u-sec
+       Preamble_samples = 16e-6*20e6;    % 16 u-sec
 
        SERVICE = [ 1 0 1 1 1 0 1 ]; %[1;0;1;1;1;0;1];
        
@@ -109,7 +110,26 @@ classdef IEEE802_11a_Receiver
             
 %% ----------------------------------------------------------------------------------- 
             %% Short Preamble
-            ShortPreamble_State();
+            ShortPreamble_State(obj);
+              
+%% ----------------------------------------------------------------------------------- 
+            %% Long Preamble
+            LongPreamble_State(obj);
+             
+%% ----------------------------------------------------------------------------------- 
+            %% SignalField paramters
+            Signal_State(obj);
+%% ----------------------------------------------------------------------------------- 
+            %% DATA Field
+            Data_State(obj);
+            RX_Data = obj.Data;
+        end
+
+    end
+
+    methods (Access = private)
+        function  ShortPreamble_State(obj)
+            obj.waveformBuffer = obj.Waveform;
             %% Packet Detection
             if obj.PacketDetectionMode
                 %% SignalDetection
@@ -123,26 +143,28 @@ classdef IEEE802_11a_Receiver
             if obj.CFO_Mode
                 
 
-            end    
-%% ----------------------------------------------------------------------------------- 
-            %% Long Preamble
-            % longPreambleWaveform = preambleWaveforms((Preamble_samples/2)+1:Preamble_samples);
-            if RX_State.CFO_Mode
-                % if(RX_State.ConstlationPlot)
-                % %% Display Fine CFO Error
-                % disp('Estimated Fine Epsilon: ');disp(Fine_Esti_Epsilon);
-                % %% Display Total CFO Error
-                % disp('Estimated CFO Epsilon: ');disp(Fine_Esti_Epsilon+Coarse_Esti_Epsilon);
-                % end
+            end  
+        end
 
-            end
+        function LongPreamble_State(obj)
+            obj.T_FFT; %% must be removed
+            %% longPreambleWaveform = preambleWaveforms((Preamble_samples/2)+1:Preamble_samples);
+            %if RX_State.CFO_Mode
+            %    % if(RX_State.ConstlationPlot)
+            %    % %% Display Fine CFO Error
+            %    % disp('Estimated Fine Epsilon: ');disp(Fine_Esti_Epsilon);
+            %    % %% Display Total CFO Error
+            %    % disp('Estimated CFO Epsilon: ');disp(Fine_Esti_Epsilon+Coarse_Esti_Epsilon);
+            %    % end
+            %
+            %end
             
             % longPreambleNoCP = longPreambleWaveform(33:end);
             % longPreamble_reshaped = reshape(longPreambleNoCP,64,2);
             % longPreamble_FD = circshift(fft(longPreamble_reshaped),32);
             % longPreambleSequance = Gaurd_Remover(longPreamble_FD);
             
-            if RX_State.EqualizerMode
+            %if RX_State.EqualizerMode
 
                 % dataInput.estmatedChannel = EstmatedChannel;
                 % signalInput.estmatedChannel = EstmatedChannel;
@@ -160,117 +182,62 @@ classdef IEEE802_11a_Receiver
                 %     plot(1:N_TSc,abs(EstimatedChannel));
                 %     title('Estimated Channel')
                 % end
-            end
+            %end
             
-                % longPreamble_2 = 
-%% ----------------------------------------------------------------------------------- 
-            %% SignalField paramters
-            [obj.DATARATE , obj.LENGTH] = Signal_State(signalInput);
-%% ----------------------------------------------------------------------------------- 
-            %% DATA Field
-            RX_Data = Data_State();
-        end
-
-    end
-
-    methods (Access = private)
-        function  ShortPreamble_State(obj)
-
-        end
-
-        function LongPreamble_State(obj)
-
+                % longPreamble_2 =
         end
 
         %% Waveform to Data Functions
-        function obj = Signal_State(obj)
+        function [state , obj] = Signal_State(obj)
             %% Signal Field paramters Extraction Function
+            
+            % The Signal waveform should be known from long preamble
+            signalWaveform = obj.waveformBuffer(obj.Preamble_samples+1:obj.Preamble_samples+obj.OFDM_Samples); %this line should be removed after finishing the long preamble function
+            
+            signal_CP = signalWaveform(1:obj.GI_samples); %#ok<NASGU>
+            signalWaveformNoCP = signalWaveform(obj.GI_samples+1:end);
 
-            %% CFO Correction
-            % if RX_State.CFO_Mode
-            %    signalWaveform = signalWaveform .* signalInput.CoarseCFO;
-            %    signalWaveform = signalWaveform .* signalInput.FineCFO;
-            % end
-            
-            %% Signal Freq Domain
-            
-            %% Time Sync
-            % if RX_State.TimeSyncMode
-            % 
-            %     %  OFDM symbol + CP 
-            %     Signal_GI  = signalWaveform(1:16);
-            % 
-            %     % cross-correlation between CP and each OFDM symbol
-            %     Correlation_result = (xcorr(signalWaveform , Signal_GI));
-            %     Correlation_result = Correlation_result(length(signalWaveform)-length(Signal_GI)+1 :end) ; 
-            %     norm_factor        = sqrt((sum(abs(Signal_GI).^2))* (sum(abs(signalWaveform).^2)));
-            %     Correlation_result = abs(Correlation_result)/ norm_factor;
-            %     Value                 = max(Correlation_result) ;
-            %     threshold             = Value*RX_State.PacketDetection.TimeSync_Threshod; 
-            %     Signal_Start            = find((Correlation_result )>threshold);
-            % 
-            %     % start % END of  each symbol 
-            %     symbolStartIndices = Signal_Start(1)+1; %% Take the First Peak (Start Peak) as a triger    
-            %     symbolENDtIndices  = symbolStartIndices+64 -1; 
-            % 
-            %     signalWaveformNoCP   = signalWaveform(symbolStartIndices:symbolENDtIndices);
-            %     signalFreqDoamin = circshift(fft(signalWaveformNoCP),FFT_Size/2);
-            % 
-            %     if RX_State.ConstlationPlot
-            %         figure ; 
-            %         subplot(2,1,1)
-            %         plot(linspace(0,length(Correlation_result),length(Correlation_result)),Correlation_result);
-            %         title('crosscorrelation between CP and OFDM-Symbols');
-            %         subplot(2,1,2)
-            %         plot(linspace(0,length(signalWaveform),length(signalWaveform)),signalWaveform);
-            %         title('crosscorrelation between CP and OFDM-Symbols');
-            % 
-            %     end
-            % 
-            % else
-            %     signalWaveformNoCP = signalWaveform(GI_samples+1:end);
-            %     signalFreqDoamin = circshift(fft(signalWaveformNoCP),FFT_Size/2);
-            % end
-            
+            signalFreqDoamin = circshift(fft(signalWaveformNoCP),obj.FFT_Size/2);
+
             % Freq Domain Error
             if obj.DebugMode
-                Signal_FreqDomain_Error = sum(round(signalFreqDoamin,1)~=round(TX_Signal_Output.SignalFreqDomain,1))
-                % find(round(signalFreqDoamin,1)~=round(TX_Signal_Output.SignalFreqDomain,1))
+                Signal_FreqDomain_Error = sum(round(signalFreqDoamin,1)~=round(obj.SignalOutput.SignalFreqDomain,1)) %#ok<NASGU>
+                % find(round(signalFreqDoamin,1)~=round(obj.SignalOutput.SignalFreqDomain,1))
             end
             %% Signal Gaurd Remove & Pilots Extraction
-            [signalActiveSC] = Gaurd_Remover(signalFreqDoamin);
+            signalActiveSC = IEEE802_11a_Receiver.Gaurd_Remover(signalFreqDoamin);
             
-            %% Equalizing
-            if RX_State.EqualizerMode
-                signalActiveSC = signalActiveSC .* signalInput.Equalizer_Q;
-            end
+            %%% Equalizing
+            %if RX_State.EqualizerMode
+            %    signalActiveSC = signalActiveSC .* signalInput.Equalizer_Q;
+            %end
             
-            mappedSignal = PilotsExtraction(signalActiveSC);
+            mappedSignal = IEEE802_11a_Receiver.PilotsExtraction(signalActiveSC);
             % Gaurd Removing and Pilot Extraction Error
             % if RX_State.DebugMode
             %     % Signal_G
             % end
             %% Signal Demapping
-            interleavedSignal = QAM_DEMOD(round(mappedSignal),2); %%*************%%
+            interleavedSignal = IEEE802_11a_Receiver.QAM_DEMOD(round(mappedSignal),2); %%*************%%
             % Demapping Error
-            if RX_State.DebugMode
-                Signal_Demapping_Error = sum(interleavedSignal~=TX_Signal_Output.InterleavedSignal)
-                find(interleavedSignal~=TX_Signal_Output.InterleavedSignal)
+            if obj.DebugMode
+                Signal_Demapping_Error = sum(interleavedSignal~=obj.SignalOutput.InterleavedSignal) %#ok<NASGU>
+                find(interleavedSignal~=obj.SignalOutput.InterleavedSignal)
             end
             %% Signal DeInterleaving
-            enCoddedSignal = deInterleaver(interleavedSignal',1,48);
+            enCoddedSignal = IEEE802_11a_Receiver.deInterleaver(interleavedSignal',1,48);
             % DeInterleaving Error
-            if RX_State.DebugMode
-                Signal_DeInterleaver_Error = sum(enCoddedSignal'~=TX_Signal_Output.EncoddedSignal)
-                find(enCoddedSignal'~=TX_Signal_Output.EncoddedSignal)
+            if obj.DebugMode
+                Signal_DeInterleaver_Error = sum(enCoddedSignal'~=obj.SignalOutput.EncoddedSignal) %#ok<NASGU>
+                find(enCoddedSignal'~=obj.SignalOutput.EncoddedSignal)
             end
             %% Signal Decoding
             trellis = poly2trellis(7, [133 171]);
-            signalBits = viterbi_decoder(enCoddedSignal',trellis,48,1/2);
+            signalBits = IEEE802_11a_Receiver.viterbi_decoder(enCoddedSignal',trellis,48,1/2);
             % Decodding Error
-            if RX_State.DebugMode
-                Signal_Decoding_Error = sum(signalBits~=TX_Signal_Output.SignalFieldBits)
-                find(signalBits~=TX_Signal_Output.SignalFieldBits)
+            if obj.DebugMode
+                Signal_Decoding_Error = sum(signalBits~=obj.SignalOutput.SignalFieldBits) %#ok<NASGU>
+                find(signalBits~=obj.SignalOutput.SignalFieldBits)
             end
             %% Signal pareamters
             RateBits = [  6   , 1 1 0 1  
@@ -283,14 +250,19 @@ classdef IEEE802_11a_Receiver
                           54  , 0 0 1 1 ];
             
             % Data Rate
-            RATE_Bits = signalBits(1:4);
-            RATE_Decimal = bin2dec(num2str(RATE_Bits'));
-            RateIndex = bin2dec(num2str(RateBits(:,2:end)))==RATE_Decimal;
-            DATARATE = RateBits(RateIndex); % 6,9,12,18,24,36,48,54
+            try
+                RATE_Bits = signalBits(1:4);
+                RATE_Decimal = bin2dec(num2str(RATE_Bits'));
+                RateIndex = bin2dec(num2str(RateBits(:,2:end)))==RATE_Decimal;
+                obj.DATARATE = RateBits(RateIndex); % 6,9,12,18,24,36,48,54
+                state = 1;
+            catch
+                state = -1;
+            end
             % Data Lenght
             LENGTH_Bits = signalBits(17:-1:6)';
             LENGTH_Decimal = bin2dec(num2str(LENGTH_Bits ));
-            LENGTH = LENGTH_Decimal;    % 1-4095
+            obj.LENGTH = LENGTH_Decimal;    % 1-4095
         end
         %% -----------------------------------------------------------------
         function Data = Data_State(obj)
@@ -308,182 +280,36 @@ classdef IEEE802_11a_Receiver
                 54    ,     64      ,   3/4      , 6  , 288 , 216  ;  % 64-QAM
             ];
             
-            dataRateIndex = find(TX_Rates(:,1)==dataInput.DATARATE);
-            %% Data Demodulation parameters
+            dataRateIndex = find(TX_Rates(:,1)==obj.DATARATE);
+            %% Data Demodulation parametersTX_Rates(:,1)==obj.DATARATE
             Mapping_Order = TX_Rates(dataRateIndex,2);
             Encoder_Rate = TX_Rates(dataRateIndex,3);
             NBPSC = TX_Rates(dataRateIndex,4); % Number Of Bits per Subcarrier
             NCBPS = TX_Rates(dataRateIndex,5); % Number Of Codded Bits per OFDM Symbol
             NDBPS = TX_Rates(dataRateIndex,6); % Number Of Data Bits per OFDM Symbol
             
-            Nsys = ceil((16+(8*dataInput.LENGTH)+6)/NDBPS);
+            Nsys = ceil((16+(8*obj.LENGTH)+6)/NDBPS);
             Ndata = Nsys*NDBPS;
-            Npad = Ndata-(16+(8*dataInput.LENGTH)+6);
-            
-            
+            Npad = Ndata-(16+(8*obj.LENGTH)+6);
+
             %% Data Freq Domain
-            dataWaveforms = dataInput.dataWaveform;
+            dataWaveforms = obj.waveformBuffer(obj.Preamble_samples+obj.OFDM_Samples+1:end);
             
-            %% Coarse Correction
-            if RX_State.CFO_Mode
-                
-                %% Before Coarse Correction
-                if RX_State.ConstlationPlot && ~RX_State.EqualizerMode && ~RX_State.PacketDetection.DetectionMode
-                    CFO_dataWaveforms = reshape(dataWaveforms,OFDM_Samples,Nsys);
-                    CFO_dataWaveformNoCP = CFO_dataWaveforms(GI_samples+1:end,:);
-                    CFO_dataFreqDoamin = circshift(fft(CFO_dataWaveformNoCP),FFT_Size/2);
-                    CFO_dataActiveSC = Gaurd_Remover(CFO_dataFreqDoamin);
-            
-                    figure;
-                    plot(CFO_dataActiveSC, 'ro', 'LineWidth', 1);
-                    % plot(real(y_coarse),imag(y_coarse), 'ro', 'LineWidth', 1);
-                    title('Constellation Diagram for RX-Waveform Before Coarse CFO correction');
-                end
-                
-                %% Coarse Correction
-                dataWaveforms = dataWaveforms .* dataInput.CoarseCFO;
-            
-                %% After Coarse Correction
-                if RX_State.ConstlationPlot && ~RX_State.EqualizerMode && ~RX_State.PacketDetection.DetectionMode
-                    CFO_dataWaveforms = reshape(dataWaveforms,OFDM_Samples,Nsys);
-                    CFO_dataWaveformNoCP = CFO_dataWaveforms(GI_samples+1:end,:);
-                    CFO_dataFreqDoamin = circshift(fft(CFO_dataWaveformNoCP),FFT_Size/2);
-                    CFO_dataActiveSC = Gaurd_Remover(CFO_dataFreqDoamin);
-            
-                    figure;
-                    plot(CFO_dataActiveSC, 'rx', 'LineWidth', 1);
-                    % plot(real(y_coarse),imag(y_coarse), 'ro', 'LineWidth', 1);
-                    title('Constellation Diagram for RX-Waveform after Coarse CFO correction');
-                end
-                
-                %% Fine Correction
-                dataWaveforms = dataWaveforms .* dataInput.FineCFO;
-            
-                %% After Coarse Correction
-                if RX_State.ConstlationPlot %&& ~RX_State.EqualizerMode && ~RX_State.PacketDetection.DetectionMode
-                    CFO_dataWaveforms = reshape(dataWaveforms,OFDM_Samples,Nsys);
-                    CFO_dataWaveformNoCP = CFO_dataWaveforms(GI_samples+1:end,:);
-                    CFO_dataFreqDoamin = circshift(fft(CFO_dataWaveformNoCP),FFT_Size/2);
-                    CFO_dataActiveSC = Gaurd_Remover(CFO_dataFreqDoamin);
-            
-                    figure;
-                    plot(CFO_dataActiveSC, 'rx', 'LineWidth', 1);
-                    % plot(real(y_coarse),imag(y_coarse), 'ro', 'LineWidth', 1);
-                    title('Constellation Diagram for RX-Waveform after Fine CFO correction');
-                end
-            
-            end
-            
-            %% Tracking
-            if RX_State.Tracking
-                %% Tracking With CP
-                if ~RX_State.Tracking_Mode
-                    OFDM_Symbols = zeros(OFDM_Samples,Nsys);
-                    omega_est = 0;
-                    estimated_freq_offset = 0;
-                    for i = 1:Nsys
-                        symbolStart  = 1 + (i - 1) * OFDM_Samples ;
-                        symbolEnd    = i * OFDM_Samples  ; 
-                    
-                        if symbolEnd > length(dataWaveforms)
-                            break;  
-                        end
-                        ONE_RX_OFDM_Symbol = dataWaveforms(symbolStart:symbolEnd);
-                    
-                        % Feedback
-                        alpha = 0.08; 
-                        N = 64 ; 
-                        freq_est = 0 ; 
-                        for k=1:16
-                            freq_est = freq_est + ONE_RX_OFDM_Symbol(k+N).*conj(ONE_RX_OFDM_Symbol(k)) ;
-                        end 
-                        omega_est = alpha *omega_est  + ((angle((freq_est)))/((2*pi*80)));
-                        fprintf('Estmated Omega for OFDM Num: %d',i);
-                        disp(omega_est);
-                        disp(omega_est+dataInput.Estemated_Omega);
-            
-                        %% Phase Tracking correction 
-                        n = (0:length(ONE_RX_OFDM_Symbol)-1 ) ;
-                        Phase = exp(-1j* 2 * pi * n *omega_est) ; 
-                        ONE_RX_OFDM_Symbol = ONE_RX_OFDM_Symbol.*Phase.' ; 
-                        % OFDM_Symbols(:,i)   = ONE_RX_OFDM_Symbol;  
-            
-                        %% Pilot-Aided Frequency Offset Estimation
-            
-                        Tracking_dataWaveformNoCP = ONE_RX_OFDM_Symbol(GI_samples+1:end,:);
-                        Tracking_dataFreqDoamin = circshift(fft(Tracking_dataWaveformNoCP),FFT_Size/2);
-                        Tracking_dataActiveSC = Gaurd_Remover(Tracking_dataFreqDoamin);
-                        [~ , dataPilots] = PilotsExtraction(Tracking_dataActiveSC);
-            
-                        [ ~ , scrambleSequance ] = scrambler(ones(7,1));
-                        pilotsPolarity = (scrambleSequance*-2)+1;
-                        STD_DataPilots = kron(Pilots,pilotsPolarity');
-            
-                        alpha= 0.02;
-            
-                        epsilon_hat = 0;
-                        for k = 1:4
-                            epsilon_hat = epsilon_hat + (Pilots*STD_DataPilots(i+1)) * (conj(dataPilots));
-                        end
-                
-                        % estimate frequency offset
-                        estimated_freq_offset = alpha*estimated_freq_offset +(1/(2*pi*64))*angle(epsilon_hat);
-                
-                        % time domain correction
-                        n = (0:OFDM_Samples-1); 
-                        Phase = exp(-1j * 2 * pi * n * estimated_freq_offset); 
-                        correctedSignal = ONE_RX_OFDM_Symbol .* Phase.'; 
-                        OFDM_Symbols(:,i) =  correctedSignal;
-                    end
-                    if RX_State.ConstlationPlot
-                    % Tracking_dataWaveforms = reshape(dataWaveforms,OFDM_Samples,Nsys);
-                    Tracking_dataWaveformNoCP = OFDM_Symbols(GI_samples+1:end,:);
-                    Tracking_dataFreqDoamin = circshift(fft(Tracking_dataWaveformNoCP),FFT_Size/2);
-                    Tracking_dataActiveSC = Gaurd_Remover(Tracking_dataFreqDoamin);
-            
-                    figure;
-                    plot(Tracking_dataActiveSC, 'x', 'LineWidth', 1);
-                    % plot(real(y_coarse),imag(y_coarse), 'ro', 'LineWidth', 1);
-                    title('Constellation Diagram for RX-Waveform after CP Tracking correction');
-                    end
-                end
-            end
-            
-            dataWaveforms = reshape(dataWaveforms,OFDM_Samples,Nsys);
-            dataWaveformNoCP = dataWaveforms(GI_samples+1:end,:);
-            dataFreqDoamin = circshift(fft(dataWaveformNoCP),FFT_Size/2);
+            dataWaveforms = reshape(dataWaveforms,obj.OFDM_Samples,Nsys);
+            dateWaveform_CP = dataWaveforms(1:obj.GI_samples,:); % data GI matrix
+            dataWaveformNoCP = dataWaveforms(obj.GI_samples+1:end,:);
+            dataFreqDoamin = circshift(fft(dataWaveformNoCP),obj.FFT_Size/2);
             
             % Freq Domain Error
-            if RX_State.DebugMode
-                Data_FreqDomain_Error = sum(sum(round(dataFreqDoamin,1)~=round(TX_Data_Output.DataFreqDomain,1)))
-                % find(round(signalFreqDoamin,1)~=round(TX_Signal_Output.SignalFreqDomain,1))
+            if obj.DebugMode
+                Data_FreqDomain_Error = sum(sum(round(dataFreqDoamin,1)~=round(obj.DataOutput.DataFreqDomain,1))) %#ok<NASGU>
+                % find(round(signalFreqDoamin,1)~=round(obj.SignalOutput.SignalFreqDomain,1))
             end
             %% Data Gaurd Remove & Pilots Extraction
             
-            dataActiveSC = Gaurd_Remover(dataFreqDoamin);
-            
-            %% Equalization
-            if RX_State.EqualizerMode
-                %% Plot Data Simpols befor equlization
-                if RX_State.ConstlationPlot
-                    figure()
-                    plot(dataActiveSC,'x')
-                    title('Before Equalizing')
-                end
-                
-                %% Equalizing
-                dataActiveSC = dataActiveSC .* dataInput.Equalizer_Q;
-            
-                %% Plot Data Simpols after equlization
-                if RX_State.ConstlationPlot
-                    figure()
-                    plot(dataActiveSC,'x')
-                    % title(RX_State.Equalizer)
-                    title('After ZF Equalizing')
-                end
-            end
+            dataActiveSC = IEEE802_11a_Receiver.Gaurd_Remover(dataFreqDoamin);
 
-            [mappedData , dataPilots] = PilotsExtraction(dataActiveSC);
+            [mappedData , dataPilots] = IEEE802_11a_Receiver.PilotsExtraction(dataActiveSC);
             
             % Scrampling Sequance for intital state = [ 1 1 1 1 1 1 1 ]
             
@@ -497,46 +323,46 @@ classdef IEEE802_11a_Receiver
             %     Data_Pilots_Subcarriers_Error = sum(round(dataPilots)~=STD_DataPilots(:,2:Nsys+1))'
             % end
             %% Data DeMapping
-            mappedData = reshape(mappedData,N_DSc*Nsys,1);
-            interleavedData = QAM_DEMOD(mappedData,Mapping_Order)'; %%*************%%
+            mappedData = reshape(mappedData,obj.N_DSc*Nsys,1);
+            interleavedData = IEEE802_11a_Receiver.QAM_DEMOD(mappedData,Mapping_Order)'; %%*************%%
             % Data Demapping Error
-            if RX_State.DebugMode
-                Data_Demapping_Error = sum(interleavedData'~=TX_Data_Output.InterleavedData)
+            if obj.DebugMode
+                Data_Demapping_Error = sum(interleavedData'~=obj.DataOutput.InterleavedData) %#ok<NASGU>
             end
             
             %% Data DeInterleaving
             InterleavedData_Reshaped = reshape(interleavedData,NCBPS,Nsys);
             enCoddedData = zeros(size(InterleavedData_Reshaped));
             for OFDM_Index = 1:Nsys
-                enCoddedData(:,OFDM_Index) = deInterleaver(InterleavedData_Reshaped(:,OFDM_Index),NBPSC,NCBPS);
+                enCoddedData(:,OFDM_Index) = IEEE802_11a_Receiver.deInterleaver(InterleavedData_Reshaped(:,OFDM_Index),NBPSC,NCBPS);
             end
             enCoddedData = reshape(enCoddedData,NCBPS*Nsys,1);
             % Data DeInterleaving Error
-            if RX_State.DebugMode
-                Data_DeInterleaving_Error = sum(enCoddedData'~=TX_Data_Output.EncodedData)
+            if obj.DebugMode
+                Data_DeInterleaving_Error = sum(enCoddedData ~=obj.DataOutput.EncodedData) %#ok<NASGU>
             end
             
             %% Data DeCoding
             trellis = poly2trellis(7, [133 171]);
-            scrambledData = viterbi_decoder(enCoddedData,trellis,NCBPS*Nsys,Encoder_Rate);
+            scrambledData = IEEE802_11a_Receiver.viterbi_decoder(enCoddedData,trellis,NCBPS*Nsys,Encoder_Rate);
             % Data Decoding Error
-            if RX_State.DebugMode
-                Data_Decoding_Error = sum(scrambledData~=TX_Data_Output.ScrambledData)
+            if obj.DebugMode
+                Data_Decoding_Error = sum(scrambledData~=obj.DataOutput.ScrambledData) %#ok<NASGU>
             end
             %% Data DeScrampling
             initial_state=[ 1 0 1 1 1 0 1 ]'; % Need to be estimated
-            padedData = scrambler(initial_state, scrambledData);
+            padedData = IEEE802_11a_Receiver.scrambler(initial_state, scrambledData);
             % Data DeScrampling Error
-            if RX_State.DebugMode
-                Data_DeScrampling_Error = sum(padedData~=TX_Data_Output.PadedDataBits)
-                % find(padedData~=TX_Data_Output.PadedDataBits)
+            if obj.DebugMode
+                Data_DeScrampling_Error = sum(padedData~=obj.DataOutput.PadedDataBits) %#ok<NASGU>
+                % find(padedData~=obj.DataOutput.PadedDataBits)
             end
             %% Data Output
             dataBits = padedData(17:end-(Npad+6)); % Remove Service & Paded Bits
             % RX_Output = dataBits;
-            RX_Data = flip(reshape(dataBits,8,dataInput.LENGTH));
+            RX_Data = flip(reshape(dataBits,8,obj.LENGTH));
             % RX_Output = RX_Data';
-            Data = bin2dec(num2str(RX_Data'));
+            obj.Data = bin2dec(num2str(RX_Data'));
             % RX_Data_Uint8 = reshape(RX_Data_Uint8,5,[])';
         end
     end
@@ -642,6 +468,27 @@ classdef IEEE802_11a_Receiver
                     signalInput.Equalizer_Q = MMSE;
                     dataInput.Equalizer_Q = MMSE;
                 end
+
+                 %%% Equalization
+            %if RX_State.EqualizerMode
+            %    %% Plot Data Simpols befor equlization
+            %    if RX_State.ConstlationPlot
+            %        figure()
+            %        plot(dataActiveSC,'x')
+            %        title('Before Equalizing')
+            %    end
+            %    
+            %    %% Equalizing
+            %    dataActiveSC = dataActiveSC .* dataInput.Equalizer_Q;
+            % 
+            %    %% Plot Data Simpols after equlization
+            %    if RX_State.ConstlationPlot
+            %        figure()
+            %        plot(dataActiveSC,'x')
+            %        % title(RX_State.Equalizer)
+            %        title('After ZF Equalizing')
+            %    end
+            %end
         end
         %% -----------------------------------------------------------------
         function TrackingPhaseEstmation()
@@ -837,7 +684,7 @@ classdef IEEE802_11a_Receiver
             % Final_Decoded_Bits is also a col vector
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             %==============================================================%
-            depuncturedData = depuncturing(Demapped_data,codeRate);
+            depuncturedData = IEEE802_11a_Receiver.depuncturing(Demapped_data,codeRate);
             %==============================================================%
             N_states=trellis.numStates;
             Depth=Depth*2;
@@ -900,13 +747,13 @@ classdef IEEE802_11a_Receiver
             
                 
                 % brach metric unit
-                [BranchMetric,nextStates_nonFiltered]= Branch_Metric_unit(currentStates,CurrentBits,trellis,data_start,data_end);
+                [BranchMetric,nextStates_nonFiltered]= IEEE802_11a_Receiver.Branch_Metric_unit(currentStates,CurrentBits,trellis,data_start,data_end);
                 
                 START=START+tr_start(adjusted_index);
                 END=END+tr_end(adjusted_index);
                 
                 % Path Metric unit
-                [pathMetricAndNextStates] = Path_Metric_unit(nextStates_nonFiltered,BranchMetric,pathMetricOfCurrentStates);
+                [pathMetricAndNextStates] = IEEE802_11a_Receiver.Path_Metric_unit(nextStates_nonFiltered,BranchMetric,pathMetricOfCurrentStates);
                 % update current states and pathmetric
                 currentStates=pathMetricAndNextStates(:,1);
                 pathMetricOfCurrentStates=pathMetricAndNextStates(:,2);
@@ -916,7 +763,7 @@ classdef IEEE802_11a_Receiver
                 V=V+1;
                 end
             % Traceback unit
-            [decodedBlock,initialStateOfNextBlock] = Trace_back_unit(TrellisMatrix,trellis,U);
+            [decodedBlock,initialStateOfNextBlock] = IEEE802_11a_Receiver.Trace_back_unit(TrellisMatrix,trellis,U);
             % update currentState
             currentState=initialStateOfNextBlock;
             % Final decoded bits
@@ -988,6 +835,135 @@ classdef IEEE802_11a_Receiver
     end
 
 end
+
+
+
+%% Need to edit
+            % %% Coarse Correction
+            %if RX_State.CFO_Mode
+            %    
+            %    %% Before Coarse Correction
+            %    if RX_State.ConstlationPlot && ~RX_State.EqualizerMode && ~RX_State.PacketDetection.DetectionMode
+            %        CFO_dataWaveforms = reshape(dataWaveforms,obj.OFDM_Samples,Nsys);
+            %        CFO_dataWaveformNoCP = CFO_dataWaveforms(obj.GI_samples+1:end,:);
+            %        CFO_dataFreqDoamin = circshift(fft(CFO_dataWaveformNoCP),obj.FFT_Size/2);
+            %        CFO_dataActiveSC = Gaurd_Remover(CFO_dataFreqDoamin);
+            %
+            %        figure;
+            %        plot(CFO_dataActiveSC, 'ro', 'LineWidth', 1);
+            %        % plot(real(y_coarse),imag(y_coarse), 'ro', 'LineWidth', 1);
+            %        title('Constellation Diagram for RX-Waveform Before Coarse CFO correction');
+            %    end
+            %    
+            %    %% Coarse Correction
+            %    dataWaveforms = dataWaveforms .* dataInput.CoarseCFO;
+            %
+            %    %% After Coarse Correction
+            %    if RX_State.ConstlationPlot && ~RX_State.EqualizerMode && ~RX_State.PacketDetection.DetectionMode
+            %        CFO_dataWaveforms = reshape(dataWaveforms,obj.OFDM_Samples,Nsys);
+            %        CFO_dataWaveformNoCP = CFO_dataWaveforms(GI_samples+1:end,:);
+            %        CFO_dataFreqDoamin = circshift(fft(CFO_dataWaveformNoCP),FFT_Size/2);
+            %        CFO_dataActiveSC = Gaurd_Remover(CFO_dataFreqDoamin);
+            %
+            %        figure;
+            %        plot(CFO_dataActiveSC, 'rx', 'LineWidth', 1);
+            %        % plot(real(y_coarse),imag(y_coarse), 'ro', 'LineWidth', 1);
+            %        title('Constellation Diagram for RX-Waveform after Coarse CFO correction');
+            %    end
+            %    
+            %    %% Fine Correction
+            %    dataWaveforms = dataWaveforms .* dataInput.FineCFO;
+            %
+            %    %% After Coarse Correction
+            %    if RX_State.ConstlationPlot %&& ~RX_State.EqualizerMode && ~RX_State.PacketDetection.DetectionMode
+            %        CFO_dataWaveforms = reshape(dataWaveforms,OFDM_Samples,Nsys);
+            %        CFO_dataWaveformNoCP = CFO_dataWaveforms(GI_samples+1:end,:);
+            %        CFO_dataFreqDoamin = circshift(fft(CFO_dataWaveformNoCP),FFT_Size/2);
+            %        CFO_dataActiveSC = Gaurd_Remover(CFO_dataFreqDoamin);
+            %
+            %        figure;
+            %        plot(CFO_dataActiveSC, 'rx', 'LineWidth', 1);
+            %        % plot(real(y_coarse),imag(y_coarse), 'ro', 'LineWidth', 1);
+            %        title('Constellation Diagram for RX-Waveform after Fine CFO correction');
+            %    end
+            %
+            %end
+            %
+            %%% Tracking
+            %if RX_State.Tracking
+            %    %% Tracking With CP
+            %    if ~RX_State.Tracking_Mode
+            %        OFDM_Symbols = zeros(OFDM_Samples,Nsys);
+            %        omega_est = 0;
+            %        estimated_freq_offset = 0;
+            %        for i = 1:Nsys
+            %            symbolStart  = 1 + (i - 1) * OFDM_Samples ;
+            %            symbolEnd    = i * OFDM_Samples  ; 
+            %        
+            %            if symbolEnd > length(dataWaveforms)
+            %                break;  
+            %            end
+            %            ONE_RX_OFDM_Symbol = dataWaveforms(symbolStart:symbolEnd);
+            %        
+            %            % Feedback
+            %            alpha = 0.08; 
+            %            N = 64 ; 
+            %            freq_est = 0 ; 
+            %            for k=1:16
+            %                freq_est = freq_est + ONE_RX_OFDM_Symbol(k+N).*conj(ONE_RX_OFDM_Symbol(k)) ;
+            %            end 
+            %            omega_est = alpha *omega_est  + ((angle((freq_est)))/((2*pi*80)));
+            %            fprintf('Estmated Omega for OFDM Num: %d',i);
+            %            disp(omega_est);
+            %            disp(omega_est+dataInput.Estemated_Omega);
+            %
+            %            %% Phase Tracking correction 
+            %            n = (0:length(ONE_RX_OFDM_Symbol)-1 ) ;
+            %            Phase = exp(-1j* 2 * pi * n *omega_est) ; 
+            %            ONE_RX_OFDM_Symbol = ONE_RX_OFDM_Symbol.*Phase.' ; 
+            %            % OFDM_Symbols(:,i)   = ONE_RX_OFDM_Symbol;  
+            %
+            %            %% Pilot-Aided Frequency Offset Estimation
+            %
+            %            Tracking_dataWaveformNoCP = ONE_RX_OFDM_Symbol(GI_samples+1:end,:);
+            %            Tracking_dataFreqDoamin = circshift(fft(Tracking_dataWaveformNoCP),FFT_Size/2);
+            %            Tracking_dataActiveSC = Gaurd_Remover(Tracking_dataFreqDoamin);
+            %            [~ , dataPilots] = PilotsExtraction(Tracking_dataActiveSC);
+            %
+            %            [ ~ , scrambleSequance ] = scrambler(ones(7,1));
+            %            pilotsPolarity = (scrambleSequance*-2)+1;
+            %            STD_DataPilots = kron(Pilots,pilotsPolarity');
+            %
+            %            alpha= 0.02;
+            %
+            %            epsilon_hat = 0;
+            %            for k = 1:4
+            %                epsilon_hat = epsilon_hat + (Pilots*STD_DataPilots(i+1)) * (conj(dataPilots));
+            %            end
+            %    
+            %            % estimate frequency offset
+            %            estimated_freq_offset = alpha*estimated_freq_offset +(1/(2*pi*64))*angle(epsilon_hat);
+            %    
+            %            % time domain correction
+            %            n = (0:OFDM_Samples-1); 
+            %            Phase = exp(-1j * 2 * pi * n * estimated_freq_offset); 
+            %            correctedSignal = ONE_RX_OFDM_Symbol .* Phase.'; 
+            %            OFDM_Symbols(:,i) =  correctedSignal;
+            %        end
+            %        if RX_State.ConstlationPlot
+            %        % Tracking_dataWaveforms = reshape(dataWaveforms,OFDM_Samples,Nsys);
+            %        Tracking_dataWaveformNoCP = OFDM_Symbols(GI_samples+1:end,:);
+            %        Tracking_dataFreqDoamin = circshift(fft(Tracking_dataWaveformNoCP),FFT_Size/2);
+            %        Tracking_dataActiveSC = Gaurd_Remover(Tracking_dataFreqDoamin);
+            %
+            %        figure;
+            %        plot(Tracking_dataActiveSC, 'x', 'LineWidth', 1);
+            %        % plot(real(y_coarse),imag(y_coarse), 'ro', 'LineWidth', 1);
+            %        title('Constellation Diagram for RX-Waveform after CP Tracking correction');
+            %        end
+            %    end
+            %end
+
 
  %% Packet Detection old old
             % if RX_State.PacketDetection.DetectionMode

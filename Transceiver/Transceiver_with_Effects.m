@@ -78,6 +78,9 @@ Wifi_Output = Transmitter.GenerateWaveform(data_hex);
 Effects = IEEE802_11a_Effects(Wifi_Output);
 Effects.DebugMode = 1; % Enable Effects Debug Mode
 
+%% Reciver Creation
+%myReciver = IEEE802_11a_Receiver(Wifi_Output);
+
 %% Simulation
 switch SimulationType
     case 'Noise'
