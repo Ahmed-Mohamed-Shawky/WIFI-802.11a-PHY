@@ -9,7 +9,7 @@ classdef IEEE802_11a_Receiver < handle
         PlotingMode         % Turn Ploting On or Off
         Tracking            % Turn Tracking On or Off
 
-        % EqualizerType           % Equalizer Type 'ZF' - 'MMSE' ... etc
+        EqualizerType           % Equalizer Type 'ZF' - 'MMSE' ... etc
         % PacketDetectionType     % Using CrosCorr Or AutoCorr
     end
 
@@ -29,7 +29,7 @@ classdef IEEE802_11a_Receiver < handle
         CoarseCFO
         FineCFO
         TotalCFO
-        Equalizer_Q
+        EstimatedChannel
 
         waveformBuffer  % HW Real-Time waveform Register
 
@@ -68,9 +68,6 @@ classdef IEEE802_11a_Receiver < handle
        %% Const Buffers
        Pilots = [1 1 1 -1];
 
-       STDlongPreambleSequance = [ 1, 1, -1, -1, 1, 1, -1, 1, -1, 1, 1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, 1, 1, 1, 1,...
-                                            1, -1, -1, 1, 1, -1, 1, -1, 1, -1, -1, -1, -1, -1, 1, 1, -1, -1, 1, -1, 1, -1, 1, 1, 1, 1].';
-
     end
     
     %% Methods
@@ -85,6 +82,8 @@ classdef IEEE802_11a_Receiver < handle
                 obj.SignalOutput = Transmitter_Output.SignalOutput;
                 obj.DataOutput = Transmitter_Output.DataOutput;
             end
+
+            obj.EqualizerType = "ZF";
 
             obj.CFO_Mode = 0;      % Turn CFO On or Off
             obj.TimeSyncMode = 0;  % Turn Time Syncronization On Off
@@ -147,8 +146,10 @@ classdef IEEE802_11a_Receiver < handle
         end
 
         function LongPreamble_State(obj)
-            obj.T_FFT; %% must be removed
-            %% longPreambleWaveform = preambleWaveforms((Preamble_samples/2)+1:Preamble_samples);
+            longPreambleWaveform = obj.waveformBuffer((obj.Preamble_samples/2)+1:obj.Preamble_samples);
+            
+            
+            
             %if RX_State.CFO_Mode
             %    % if(RX_State.ConstlationPlot)
             %    % %% Display Fine CFO Error
@@ -159,30 +160,30 @@ classdef IEEE802_11a_Receiver < handle
             %
             %end
             
-            % longPreambleNoCP = longPreambleWaveform(33:end);
-            % longPreamble_reshaped = reshape(longPreambleNoCP,64,2);
-            % longPreamble_FD = circshift(fft(longPreamble_reshaped),32);
-            % longPreambleSequance = Gaurd_Remover(longPreamble_FD);
-            
-            %if RX_State.EqualizerMode
+            longPreambleNoCP = longPreambleWaveform((obj.GI_samples*2)+1:end);
+            longPreamble_reshaped = reshape(longPreambleNoCP,obj.FFT_Size,2);
+            longPreamble_FD = circshift(fft(longPreamble_reshaped),obj.FFT_Size/2);
+            longPreambleSequance = obj.Gaurd_Remover(longPreamble_FD);
 
-                % dataInput.estmatedChannel = EstmatedChannel;
-                % signalInput.estmatedChannel = EstmatedChannel;
+            if obj.EqualizerMode
+                obj.EstimatedChannel = obj.ChannelEsmtation(longPreambleSequance);
+
+                longPreambleSequance = obj.Equalizer(longPreambleSequance,obj.EstimatedChannel,obj.EqualizerType);
             
-                % if RX_State.ConstlationPlot
-                %     figure();
-                %     subplot(2,1,1);
-                %     plot(long_1,'bx');hold on;
-                %     plot(long_2,'bx');hold on;
-                %     plot(STDlongPreambleSequance',zeros(52),'ro','LineWidth',2);
-                %     title("Long Preambles");
-                %     % plot(1:N_TSc,STDlongPreambleSequance,'o');hold on;
-                %     % plot(1:N_TSc,ZF_long_1,'x');
-                %     subplot(2,1,2);
-                %     plot(1:N_TSc,abs(EstimatedChannel));
-                %     title('Estimated Channel')
-                % end
-            %end
+                if obj.DebugMode
+                    figure();
+                    subplot(2,1,1);
+                    plot(longPreambleSequance(:,1),'bx');hold on;
+                    plot(longPreambleSequance(:,2),'bx');hold on;
+                    %plot(obj.STDlongPreambleSequance',zeros(52),'ro','LineWidth',2);
+                    title("Equalized Long Preambles");
+                    % plot(1:N_TSc,STDlongPreambleSequance,'o');hold on;
+                    % plot(1:N_TSc,ZF_long_1,'x');
+                    subplot(2,1,2);
+                    plot(1:obj.N_TSc,abs(obj.EstimatedChannel));
+                    title('Estimated Channel')
+                end
+            end
             
                 % longPreamble_2 =
         end
@@ -207,10 +208,10 @@ classdef IEEE802_11a_Receiver < handle
             %% Signal Gaurd Remove & Pilots Extraction
             signalActiveSC = IEEE802_11a_Receiver.Gaurd_Remover(signalFreqDoamin);
             
-            %%% Equalizing
-            %if RX_State.EqualizerMode
-            %    signalActiveSC = signalActiveSC .* signalInput.Equalizer_Q;
-            %end
+            %% Equalizing the signal field subcarriers
+            if obj.EqualizerMode
+                signalActiveSC = obj.Equalizer(signalActiveSC,obj.EstimatedChannel,obj.EqualizerType);
+            end
             
             mappedSignal = IEEE802_11a_Receiver.PilotsExtraction(signalActiveSC);
             % Gaurd Removing and Pilot Extraction Error
@@ -265,7 +266,7 @@ classdef IEEE802_11a_Receiver < handle
             obj.LENGTH = LENGTH_Decimal;    % 1-4095
         end
         %% -----------------------------------------------------------------
-        function Data = Data_State(obj)
+        function Data_State(obj)
             
             %% 802.11a Standart Data Rates
             TX_Rates = [
@@ -296,20 +297,26 @@ classdef IEEE802_11a_Receiver < handle
             dataWaveforms = obj.waveformBuffer(obj.Preamble_samples+obj.OFDM_Samples+1:end);
             
             dataWaveforms = reshape(dataWaveforms,obj.OFDM_Samples,Nsys);
-            dateWaveform_CP = dataWaveforms(1:obj.GI_samples,:); % data GI matrix
+            %dateWaveform_CP = dataWaveforms(1:obj.GI_samples,:); % data GI matrix
             dataWaveformNoCP = dataWaveforms(obj.GI_samples+1:end,:);
             dataFreqDoamin = circshift(fft(dataWaveformNoCP),obj.FFT_Size/2);
-            
+
             % Freq Domain Error
             if obj.DebugMode
                 Data_FreqDomain_Error = sum(sum(round(dataFreqDoamin,1)~=round(obj.DataOutput.DataFreqDomain,1))) %#ok<NASGU>
                 % find(round(signalFreqDoamin,1)~=round(obj.SignalOutput.SignalFreqDomain,1))
             end
-            %% Data Gaurd Remove & Pilots Extraction
+            %% Data Gaurd Remove
             
             dataActiveSC = IEEE802_11a_Receiver.Gaurd_Remover(dataFreqDoamin);
 
-            [mappedData , dataPilots] = IEEE802_11a_Receiver.PilotsExtraction(dataActiveSC);
+            %% Equalizing the Data field subcarriers
+            if obj.EqualizerMode
+                dataActiveSC = obj.Equalizer(dataActiveSC,obj.EstimatedChannel,obj.EqualizerType);
+            end
+
+            %% Pilots Extraction
+            [mappedData , dataPilots] = IEEE802_11a_Receiver.PilotsExtraction(dataActiveSC); %#ok<ASGLU>
             
             % Scrampling Sequance for intital state = [ 1 1 1 1 1 1 1 ]
             
@@ -384,89 +391,82 @@ classdef IEEE802_11a_Receiver < handle
         end
         %% -----------------------------------------------------------------
         function CoarseCFOestmation()
-            % Coarse CFO Estimation
-            var1 = sum(imag(shortPreamble_FD(:,2) .* conj(shortPreamble_FD(:,1))));
-            var2 = sum(real(shortPreamble_FD(:,2) .* conj(shortPreamble_FD(:,1))));
-            Coarse_Esti_Epsilon = atan2(var1, var2) / (2 * pi*16);
-            if(RX_State.ConstlationPlot)
-            disp('Estimated Coarse Epsilon: ');disp(Coarse_Esti_Epsilon);
-            end
+            %% Coarse CFO Estimation
+            %var1 = sum(imag(shortPreamble_FD(:,2) .* conj(shortPreamble_FD(:,1))));
+            %var2 = sum(real(shortPreamble_FD(:,2) .* conj(shortPreamble_FD(:,1))));
+            %Coarse_Esti_Epsilon = atan2(var1, var2) / (2 * pi*16);
+            %if(RX_State.ConstlationPlot)
+            %disp('Estimated Coarse Epsilon: ');disp(Coarse_Esti_Epsilon);
+            %end
         end
         %% -----------------------------------------------------------------
         function FineCFOestmation()
             % Fine CFO Estimation
-            CFO_longPreambleNoCP = longPreambleWaveform(33:end);
-            CFO_longPreamble_reshaped = reshape(CFO_longPreambleNoCP,64,2);
-            CFO_longPreamble_FD = fft(CFO_longPreamble_reshaped);
-           
-            var1 = sum(imag(CFO_longPreamble_FD(:,2) .* conj(CFO_longPreamble_FD(:,1))));
-            var2 = sum(real(CFO_longPreamble_FD(:,2) .* conj(CFO_longPreamble_FD(:,1))));
-            Fine_Esti_Epsilon = atan2(var1, var2) / (2 * pi*64);
+            %CFO_longPreambleNoCP = longPreambleWaveform(33:end);
+            %CFO_longPreamble_reshaped = reshape(CFO_longPreambleNoCP,64,2);
+            %CFO_longPreamble_FD = fft(CFO_longPreamble_reshaped);
+           %
+            %var1 = sum(imag(CFO_longPreamble_FD(:,2) .* conj(CFO_longPreamble_FD(:,1))));
+            %var2 = sum(real(CFO_longPreamble_FD(:,2) .* conj(CFO_longPreamble_FD(:,1))));
+            %Fine_Esti_Epsilon = atan2(var1, var2) / (2 * pi*64);
         end
         %% -----------------------------------------------------------------
         function CFO_Correction()
-            %% Coarse CFO Correction
-            k = 0:length(waveform)-1;
-            Phase_coarse = exp(-1j * k * 2 * pi * Coarse_Esti_Epsilon).';
-
-            %% Coarse Correction
-            longPreambleWaveform = longPreambleWaveform .* Long_Phase_coarse;
-
-            %% Fine CFO Correction
-                k = 160:length(waveform)-1;
-                Phase_Fine = exp(-1j * k * 2 * pi * Fine_Esti_Epsilon).';
-                
-                Long_Phase_Fine = Phase_Fine(1:Preamble_samples-160);
-                Signal_Phase_Fine = Phase_Fine(Preamble_samples-160+1:Preamble_samples-160+OFDM_Samples);
-                Data_Phase_Fine = Phase_Fine(Preamble_samples-160+OFDM_Samples+1:end);
-            
-                longPreambleWaveform = longPreambleWaveform.* Long_Phase_Fine;
-                signalInput.PhaseFine = Signal_Phase_Fine;
-                dataInput.PhaseFine = Data_Phase_Fine;
+            %%% Coarse CFO Correction
+            %k = 0:length(waveform)-1;
+            %Phase_coarse = exp(-1j * k * 2 * pi * Coarse_Esti_Epsilon).';
+%
+            %%% Coarse Correction
+            %longPreambleWaveform = longPreambleWaveform .* Long_Phase_coarse;
+%
+            %%% Fine CFO Correction
+            %    k = 160:length(waveform)-1;
+            %    Phase_Fine = exp(-1j * k * 2 * pi * Fine_Esti_Epsilon).';
+            %    
+            %    Long_Phase_Fine = Phase_Fine(1:Preamble_samples-160);
+            %    Signal_Phase_Fine = Phase_Fine(Preamble_samples-160+1:Preamble_samples-160+OFDM_Samples);
+            %    Data_Phase_Fine = Phase_Fine(Preamble_samples-160+OFDM_Samples+1:end);
+            %
+            %    longPreambleWaveform = longPreambleWaveform.* Long_Phase_Fine;
+            %    signalInput.PhaseFine = Signal_Phase_Fine;
+            %    dataInput.PhaseFine = Data_Phase_Fine;
         end
         %% -----------------------------------------------------------------
-        function ChannelEsmtation()
-            % STDlongPreambleSequance = Gaurd_Remover(STDlongPreambleSequance); 
-            estmatedChannel_1 = longPreambleSequance(:,1) ./ STDlongPreambleSequance;
-            estmatedChannel_2 = longPreambleSequance(:,2) ./ STDlongPreambleSequance;
-           
+        function EstimatedChannel = ChannelEsmtation(LongPreamble)
+            STDlongPreambleSequance = [ 1, 1, -1, -1, 1, 1, -1, 1, -1, 1, 1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, 1, 1, 1, 1,...
+                                            1, -1, -1, 1, 1, -1, 1, -1, 1, -1, -1, -1, -1, -1, 1, 1, -1, -1, 1, -1, 1, -1, 1, 1, 1, 1].';
+            %STDlongPreambleSequance = IEEE802_11a_Receiver.Gaurd_Remover(STDlongPreambleSequance); 
+            estmatedChannel_1 = LongPreamble(:,1) ./ STDlongPreambleSequance;
+            estmatedChannel_2 = LongPreamble(:,2) ./ STDlongPreambleSequance;
+        
             EstimatedChannel = (estmatedChannel_2+estmatedChannel_1)/2;
-           
-            % else
-            %     longPreambles_FD = fft(longPreamble_reshaped);
-            %     longPreambleSequance = Gaurd_Remover(longPreambles_FD);
-            % end
         end
         %% -----------------------------------------------------------------
-        function Equalizer()
-            %%Equalizer
-                if RX_State.Equalizer == "ZF"
-                    ZF = 1./EstimatedChannel;
-                    long_1 = (longPreambleSequance(:,1).*ZF);
-                    long_2 = (longPreambleSequance(:,2).*ZF);
+        function Equalized_SC = Equalizer(FreqDomain_SC,EstimatedChannel,Equalizer)
+            %% Equalizer
+                if Equalizer == "ZF"
+                    ZF_Q = 1./EstimatedChannel;
+                    Equalized_SC = (FreqDomain_SC.*ZF_Q);
             
-                    signalInput.Equalizer_Q = ZF;
-                    dataInput.Equalizer_Q = ZF;
-            
-                elseif RX_State.Equalizer == "MMSE"
+                elseif Equalizer == "MMSE"
                     % MMSE Equalizer
                     % Wiener filter for reducing noise (based on MMSE in freq.-domain)
                     % MMSE = conj(EstmatedChannel) ./ (abs(EstmatedChannel).^2 + abs(NoisePower / WaveformPower));
                     % MMSE = pinv((abs(EstmatedChannel).^2 + (NoisePower / WaveformPower))) .* EstmatedChannel';
                     % MMSE = conj(EstmatedChannel) ./ (abs(EstmatedChannel).^2 + NoisePower / WaveformPower);
-                    long_avg = (longPreambleSequance(:,1)+longPreambleSequance(:,2))/2;
-                    % SignalPower = (rms(longPreambleSequance(:,1))+rms(longPreambleSequance(:,2)))/2;
-                    SignalPower = rms(waveform);
-                    SNR_db = log10(RX_State.SNR_linear);
-                    NoisePower = rms(waveform)/(10^(SNR_db/20));
-                    % MMSE = conj(EstmatedChannel) ./ (vecnorm(EstmatedChannel,2,2).^2+(NoisePower / SignalPower));
-                    MMSE = conj(EstimatedChannel)*SignalPower ./ ( (vecnorm(EstimatedChannel,2,2).^2)*SignalPower + NoisePower);
-                    % Apply MMSE equalizer to the Rx Long Preamble waveform
-                    long_1 = longPreambleSequance(:,1) .* MMSE;
-                    long_2 = longPreambleSequance(:,2) .* MMSE';
-            
-                    signalInput.Equalizer_Q = MMSE;
-                    dataInput.Equalizer_Q = MMSE;
+                    % long_avg = (longPreambleSequance(:,1)+longPreambleSequance(:,2))/2;
+                    % % SignalPower = (rms(longPreambleSequance(:,1))+rms(longPreambleSequance(:,2)))/2;
+                    % SignalPower = rms(waveform);
+                    % SNR_db = log10(RX_State.SNR_linear);
+                    % NoisePower = rms(waveform)/(10^(SNR_db/20));
+                    % % MMSE = conj(EstmatedChannel) ./ (vecnorm(EstmatedChannel,2,2).^2+(NoisePower / SignalPower));
+                    % MMSE = conj(EstimatedChannel)*SignalPower ./ ( (vecnorm(EstimatedChannel,2,2).^2)*SignalPower + NoisePower);
+                    % % Apply MMSE equalizer to the Rx Long Preamble waveform
+                    % long_1 = longPreambleSequance(:,1) .* MMSE;
+                    % long_2 = longPreambleSequance(:,2) .* MMSE';
+            %
+                    %signalInput.Equalizer_Q = MMSE;
+                    %dataInput.Equalizer_Q = MMSE;
                 end
 
                  %%% Equalization
@@ -731,7 +731,7 @@ classdef IEEE802_11a_Receiver < handle
                 TrellisMatrix=inf(N_states,Depth/2);
                 TrellisMatrix(currentStates,1)=pathMetricOfCurrentStates;
                 U=2;
-                CurrentBlock=reshapedData(K,:);
+                %CurrentBlock=reshapedData(K,:);
             
             
                 for t  =1:2:Depth

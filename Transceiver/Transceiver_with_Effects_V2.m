@@ -64,8 +64,9 @@ RX_State = struct("DebugMode",RX_DebugMode, ...
 
 %% Simulation
 if ~SimulateMode
+    
 %% Data Generating
-data_hex = randi(255,LENGTH,1);
+data_hex = randi(255,LENGTH,1); %#ok<UNRCH>
 data_bits = dec2bin(data_hex)-'0';
 
 %% Waveform Generating
