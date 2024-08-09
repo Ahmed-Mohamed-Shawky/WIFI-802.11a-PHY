@@ -106,7 +106,8 @@ classdef IEEE802_11a_Receiver < handle
                 obj.SignalOutput = Transmitter_Output.SignalOutput;
                 obj.DataOutput = Transmitter_Output.DataOutput;
             end
-            
+
+
 %% ----------------------------------------------------------------------------------- 
             %% Short Preamble
             ShortPreamble_State(obj);
@@ -128,16 +129,31 @@ classdef IEEE802_11a_Receiver < handle
 
     methods (Access = private)
         function  ShortPreamble_State(obj)
-            obj.waveformBuffer = obj.Waveform;
+            
             %% Packet Detection
             if obj.PacketDetectionMode
                 %% SignalDetection
+                [startIndex, samplesEnergy] = obj.SignalDetection(obj.Waveform,0.01);
+                obj.waveformBuffer = obj.Waveform(startIndex-1:end);
 
+                if(obj.DebugMode)
+                    disp("Strat Index: ");disp(startIndex);
+                    figure;
+                    subplot(2,1,1)
+                    plot(1:length(samplesEnergy),samplesEnergy)
+                    title("Signal Energy")
+                    subplot(2,1,2)
+                    plot(1:length(obj.waveformBuffer),abs(obj.waveformBuffer))
+                    title("Waveform after STO Correction")
+                end
                 %% PacketDetection
 
                 %% PacketSync
                                 
+            else
+                obj.waveformBuffer = obj.Waveform;
             end
+
             %% Coars Estimation
             if obj.CFO_Mode
                 
@@ -251,14 +267,13 @@ classdef IEEE802_11a_Receiver < handle
                           54  , 0 0 1 1 ];
             
             % Data Rate
-            try
                 RATE_Bits = signalBits(1:4);
                 RATE_Decimal = bin2dec(num2str(RATE_Bits'));
                 RateIndex = bin2dec(num2str(RateBits(:,2:end)))==RATE_Decimal;
                 obj.DATARATE = RateBits(RateIndex); % 6,9,12,18,24,36,48,54
-                state = 1;
-            catch
-                state = -1;
+            if(isempty(obj.DATARATE))
+                Error = MException('Reciver:PacketFaild','Signal-Field decoding Faild');
+                throw(Error)
             end
             % Data Lenght
             LENGTH_Bits = signalBits(17:-1:6)';
@@ -377,8 +392,19 @@ classdef IEEE802_11a_Receiver < handle
     methods(Access = private,Static,Hidden)
         
         %% System Block Functions
-        function SignalDetection()
+        function [start_index,sampleEnergy] = SignalDetection(waveform,Threshod)
             
+            sampleEnergy = (vecnorm(waveform,1,2).^2);
+            start_index=find(sampleEnergy>Threshod);
+
+            if(isempty(start_index))
+                Error = MException('Reciver:PacketFaild','Signal Detection Faild');
+                throw(Error)
+                %start_index = -1;
+            else
+                start_index=start_index(1);
+            end
+            %rx_waveform=rx_waveform(start_index(1):end);
         % simple threshold
         end
         %% -----------------------------------------------------------------
