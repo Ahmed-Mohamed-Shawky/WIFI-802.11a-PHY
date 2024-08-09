@@ -30,7 +30,11 @@ Effects = IEEE802_11a_Effects(TX_Output);
 Effects.DebugMode = 1; % Enable Effects Debug Mode
 
 Effects.add_STO(500) %% Number of added samples befor the waveform
+
+% Testing the Signal Detection
 %Effects.TransmitterOutput.waveform = zeros(1,800);
+% Testing the Packet Detection
+%Effects.TransmitterOutput.waveform = randn(1,800);
 
 %% Extracting Data
 % Creat Receiver Object

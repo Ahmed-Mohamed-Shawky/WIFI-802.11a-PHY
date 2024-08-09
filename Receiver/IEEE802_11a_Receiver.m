@@ -134,11 +134,11 @@ classdef IEEE802_11a_Receiver < handle
             if obj.PacketDetectionMode
                 %% SignalDetection
                 [startIndex, samplesEnergy] = obj.SignalDetection(obj.Waveform,0.01);
-                obj.waveformBuffer = obj.Waveform(startIndex-1:end);
+                obj.waveformBuffer = obj.Waveform(startIndex:end);
 
                 if(obj.DebugMode)
                     disp("Strat Index: ");disp(startIndex);
-                    figure;
+                    figure("Name","Signal Detection");
                     subplot(2,1,1)
                     plot(1:length(samplesEnergy),samplesEnergy)
                     title("Signal Energy")
@@ -147,7 +147,18 @@ classdef IEEE802_11a_Receiver < handle
                     title("Waveform after STO Correction")
                 end
                 %% PacketDetection
+                AutocorrOut = obj.Autocorr(obj.waveformBuffer(1:300),16);
+                
+                if length(AutocorrOut(AutocorrOut>0.7) )<80
+                    Error = MException('Reciver:PacketFaild','Packet Detection Faild');
+                    throw(Error)
+                end
 
+                if(obj.DebugMode)
+                    figure("Name","Packet Detection");
+                    plot(1:length(AutocorrOut),AutocorrOut)
+                    title("Packet Detection Auto Corr Out")
+                end
                 %% PacketSync
                                 
             else
@@ -408,9 +419,9 @@ classdef IEEE802_11a_Receiver < handle
         % simple threshold
         end
         %% -----------------------------------------------------------------
-        function PacketDetection()
-
-        end
+        % function PacketDetection()
+        % 
+        % end
         %% -----------------------------------------------------------------
         function PacketSync()
 
@@ -523,6 +534,23 @@ classdef IEEE802_11a_Receiver < handle
         %% -----------------------------------------------------------------
         function TrackingPhaseCorrection
 
+        end
+
+        %% -----------------------------------------------------------------
+        function crossCorrelation_out = Xcorr(Signal1, Signal2)
+            corrWindow = length(Signal2);
+            crossCorrelation_out=zeros(corrWindow,1);
+            for n=1:length(Signal1)
+            crossCorrelation_out(n)=norm(sum( Signal1(n:n+(corrWindow-1)).*conj(Signal2)))/norm(Signal1(n:n+(corrWindow-1)))^2;
+            end
+        end
+
+        %% -----------------------------------------------------------------
+        function autoCorrelation_out = Autocorr(Signal,corrWindow)
+            autoCorrelation_out=zeros(length(Signal),1);
+            for n=1:(length(Signal)-(2*corrWindow)-1)
+            autoCorrelation_out(n)=norm(sum( Signal(n+corrWindow:n+(2*corrWindow-1)).*conj(Signal(n:n+(corrWindow-1)))))./norm(Signal(n:n+(corrWindow-1)))^2;
+            end
         end
         
         %% Preambels Generation Functions
