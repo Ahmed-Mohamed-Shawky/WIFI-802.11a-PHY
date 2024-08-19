@@ -5,7 +5,7 @@ classdef IEEE802_11a_Transmitter
         %% TXVECTOR Parameters
         LENGTH      % 1-4095
         DATARATE    % 6,9,12,18,24,36,48,54
-        SERVICE = [ 1 0 1 1 1 0 1 ]; %[1;0;1;1;1;0;1];
+        SERVICE = [ 1 0 1 0 1 0 1 ]; %[1;0;1;1;1;0;1];
         % TXPWR_LEVEL   % 1-8
         DebugMode   % control the transmitter output
                     % 0 -> TX_output = waveform
@@ -158,6 +158,7 @@ classdef IEEE802_11a_Transmitter
             
             if (obj.DebugMode)
             SignalOutput = struct("SignalWaveform",signalWaveform, ...
+                                  "DataLength",obj.LENGTH, ...
                                   "SignalFieldBits", signalFieldBits, ...
                                   "EncoddedSignal", encodedSignal, ...
                                   "InterleavedSignal", interleavedSignal, ...

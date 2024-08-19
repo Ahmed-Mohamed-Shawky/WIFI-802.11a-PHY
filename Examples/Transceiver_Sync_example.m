@@ -29,7 +29,7 @@ TX_Output = Transmitter.GenerateWaveform(data_hex);
 Effects = IEEE802_11a_Effects(TX_Output);
 Effects.DebugMode = 1; % Enable Effects Debug Mode
 
-Effects.add_STO(500) %% Number of added samples befor the waveform
+Effects.add_STO(randi([1,500])) %% Number of added samples befor the waveform
 
 % Testing the Signal Detection
 %Effects.TransmitterOutput.waveform = zeros(1,800);
@@ -39,6 +39,7 @@ Effects.add_STO(500) %% Number of added samples befor the waveform
 %% Extracting Data
 % Creat Receiver Object
 Receiver = IEEE802_11a_Receiver(Effects.TransmitterOutput);%IEEE802_11a_Receiver(TX_Output);
+Receiver.EqualizerMode = 1;
 Receiver.PacketDetectionMode = 1;
 try
     RX_Data = Receiver.ReceiveData();
@@ -52,6 +53,8 @@ catch Error
     else
         disp("Unkown Error")
         disp(Error.message)
+        errorName = Error.stack.name;disp(errorName)
+        errorLine = Error.stack.line;disp(errorLine)
     end
 end
 

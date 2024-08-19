@@ -63,7 +63,7 @@ classdef IEEE802_11a_Receiver < handle
        GI_samples = 0.8e-6*20e6;         % 0.8 u-sec
        Preamble_samples = 16e-6*20e6;    % 16 u-sec
 
-       SERVICE = [ 1 0 1 1 1 0 1 ]; %[1;0;1;1;1;0;1];
+       %SERVICE = [ 1 0 1 0 1 0 1 ]; %[1;0;1;1;1;0;1];
        
        %% Const Buffers
        Pilots = [1 1 1 -1];
@@ -160,9 +160,36 @@ classdef IEEE802_11a_Receiver < handle
                     title("Packet Detection Auto Corr Out")
                 end
                 %% PacketSync
-                                
+                STS_16samples = obj.shortPreamble2waveform;
+                STS_16samples = STS_16samples(1:16);
+                XcorrOut = obj.Xcorr(obj.waveformBuffer(1:300),STS_16samples);
+
+                % find long preamble starting index
+                previous_peak_val=0;
+                peakcount=0;
+                [~,firstpeak_idx]=max(XcorrOut(1:16));
+                for i = 1:16:240
+                    [peak_val,peak_idx]=max(XcorrOut(i:i+15));
+                    ispeak=peak_val-previous_peak_val;
+                    previous_peak_val=peak_val;
+                    if (ispeak>-0.06 || ispeak>0.06)
+                        peakcount=peakcount+1;
+                    else
+                        break
+                    end
+                end
+                estimatedPacketIndex=firstpeak_idx+16*peakcount+(firstpeak_idx-17);
+                
+                obj.waveformBuffer = obj.waveformBuffer(estimatedPacketIndex:end);
+
+                if obj.DebugMode
+                    disp("Long Preample Start: ");disp(estimatedPacketIndex);
+                    figure("Name","Packet Sync")
+                    plot(1:length(obj.waveformBuffer(estimatedPacketIndex:end)),abs(obj.waveformBuffer(estimatedPacketIndex:end)))
+                    title("Packet Sync Output")
+                end
             else
-                obj.waveformBuffer = obj.Waveform;
+                obj.waveformBuffer = obj.Waveform(160:end);
             end
 
             %% Coars Estimation
@@ -173,7 +200,7 @@ classdef IEEE802_11a_Receiver < handle
         end
 
         function LongPreamble_State(obj)
-            longPreambleWaveform = obj.waveformBuffer((obj.Preamble_samples/2)+1:obj.Preamble_samples);
+            longPreambleWaveform = obj.waveformBuffer(1:obj.Preamble_samples/2);
             
             
             
@@ -212,6 +239,7 @@ classdef IEEE802_11a_Receiver < handle
                 end
             end
             
+            obj.waveformBuffer = obj.waveformBuffer((obj.Preamble_samples/2)+1:end);
                 % longPreamble_2 =
         end
 
@@ -220,7 +248,7 @@ classdef IEEE802_11a_Receiver < handle
             %% Signal Field paramters Extraction Function
             
             % The Signal waveform should be known from long preamble
-            signalWaveform = obj.waveformBuffer(obj.Preamble_samples+1:obj.Preamble_samples+obj.OFDM_Samples); %this line should be removed after finishing the long preamble function
+            signalWaveform = obj.waveformBuffer(1:obj.OFDM_Samples); %this line should be removed after finishing the long preamble function
             
             signal_CP = signalWaveform(1:obj.GI_samples); %#ok<NASGU>
             signalWaveformNoCP = signalWaveform(obj.GI_samples+1:end);
@@ -290,6 +318,11 @@ classdef IEEE802_11a_Receiver < handle
             LENGTH_Bits = signalBits(17:-1:6)';
             LENGTH_Decimal = bin2dec(num2str(LENGTH_Bits ));
             obj.LENGTH = LENGTH_Decimal;    % 1-4095
+            if(obj.LENGTH ~= obj.SignalOutput.DataLength)
+                Error = MException('Reciver:PacketFaild','Signal-Field Wrong Data Length');
+                throw(Error)
+            end
+            obj.waveformBuffer = obj.waveformBuffer(obj.OFDM_Samples+1:end);
         end
         %% -----------------------------------------------------------------
         function Data_State(obj)
@@ -320,7 +353,7 @@ classdef IEEE802_11a_Receiver < handle
             Npad = Ndata-(16+(8*obj.LENGTH)+6);
 
             %% Data Freq Domain
-            dataWaveforms = obj.waveformBuffer(obj.Preamble_samples+obj.OFDM_Samples+1:end);
+            dataWaveforms = obj.waveformBuffer(1:obj.OFDM_Samples*Nsys);
             
             dataWaveforms = reshape(dataWaveforms,obj.OFDM_Samples,Nsys);
             %dateWaveform_CP = dataWaveforms(1:obj.GI_samples,:); % data GI matrix
@@ -383,7 +416,7 @@ classdef IEEE802_11a_Receiver < handle
                 Data_Decoding_Error = sum(scrambledData~=obj.DataOutput.ScrambledData) %#ok<NASGU>
             end
             %% Data DeScrampling
-            initial_state=[ 1 0 1 1 1 0 1 ]'; % Need to be estimated
+            initial_state=[ 1 0 1 0 1 0 1 ]'; % Need to be estimated
             padedData = IEEE802_11a_Receiver.scrambler(initial_state, scrambledData);
             % Data DeScrampling Error
             if obj.DebugMode
@@ -540,7 +573,7 @@ classdef IEEE802_11a_Receiver < handle
         function crossCorrelation_out = Xcorr(Signal1, Signal2)
             corrWindow = length(Signal2);
             crossCorrelation_out=zeros(corrWindow,1);
-            for n=1:length(Signal1)
+            for n=1:(length(Signal1)-corrWindow-1)
             crossCorrelation_out(n)=norm(sum( Signal1(n:n+(corrWindow-1)).*conj(Signal2)))/norm(Signal1(n:n+(corrWindow-1)))^2;
             end
         end
