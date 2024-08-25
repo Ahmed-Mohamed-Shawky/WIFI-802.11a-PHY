@@ -3,10 +3,10 @@ classdef IEEE802_11a_Receiver < handle
     %% properties
     properties(Access = public)
         CFO_Mode            % Turn CFO On or Off
-        TimeSyncMode        % Turn Time Syncronization On Off
+        % TimeSyncMode        % Turn Time Syncronization On Off
         EqualizerMode       % Turn Equalization On or Off
         PacketDetectionMode % Turn Packet Detection On or Off
-        PlotingMode         % Turn Ploting On or Off
+        % PlotingMode         % Turn Ploting On or Off
         Tracking            % Turn Tracking On or Off
 
         EqualizerType           % Equalizer Type 'ZF' - 'MMSE' ... etc
@@ -45,6 +45,7 @@ classdef IEEE802_11a_Receiver < handle
     properties(Constant)
        %% Parameters
        Sampling_Freq = 20e6; % 20 Msamples/sec
+       Carrier_freq = 5.8e9;  % Carrier frequency of Wi-Fi 802.11a (5.8 GHz)
       
        N_DSc = 48;          % Number of Data Subcarriers
        N_PSc = 4;           % Number of Pilots Subcarriers
@@ -86,10 +87,10 @@ classdef IEEE802_11a_Receiver < handle
             obj.EqualizerType = "ZF";
 
             obj.CFO_Mode = 0;      % Turn CFO On or Off
-            obj.TimeSyncMode = 0;  % Turn Time Syncronization On Off
+            % obj.TimeSyncMode = 0;  % Turn Time Syncronization On Off
             obj.EqualizerMode = 0; % Turn Equalization On or Off
             obj.PacketDetectionMode = 0; % Turn Packet Detection On or Off
-            obj.PlotingMode = 0; % Turn Ploting On or Off
+            % obj.PlotingMode = 0; % Turn Ploting On or Off
             obj.Tracking = 0;       % Turn Tracking On or Off
 
             %%obj.waveformBuffer = zeros(160,1); %% HW Buffer Size
@@ -129,7 +130,7 @@ classdef IEEE802_11a_Receiver < handle
 
     methods (Access = private)
         function  ShortPreamble_State(obj)
-            
+
             %% Packet Detection
             if obj.PacketDetectionMode
                 %% SignalDetection
@@ -180,6 +181,7 @@ classdef IEEE802_11a_Receiver < handle
                 end
                 estimatedPacketIndex=firstpeak_idx+16*peakcount+(firstpeak_idx-17);
                 
+                shortPreambleWaveform = obj.waveformBuffer(1:estimatedPacketIndex)
                 obj.waveformBuffer = obj.waveformBuffer(estimatedPacketIndex:end);
 
                 if obj.DebugMode
@@ -189,12 +191,21 @@ classdef IEEE802_11a_Receiver < handle
                     title("Packet Sync Output")
                 end
             else
+                shortPreambleWaveform = obj.Waveform(1:160);
                 obj.waveformBuffer = obj.Waveform(160:end);
             end
 
             %% Coars Estimation
             if obj.CFO_Mode
-                
+                STS_1 = shortPreambleWaveform(1:16);
+                STS_2 = shortPreambleWaveform(17:32);
+                % STS_9 = shortPreambleWaveform(end-31:end-16);
+                % STS_10 = shortPreambleWaveform(end-15:end);
+                obj.CoarseCFO = obj.CoarseCFOestmation(STS_1,STS_2);
+
+                if obj.DebugMode
+                    disp("Coarse CFO Alpha (Hz): ");disp( (obj.CoarseCFO/(2*pi)) * obj.Sampling_Freq);
+                end
 
             end  
         end
@@ -202,19 +213,23 @@ classdef IEEE802_11a_Receiver < handle
         function LongPreamble_State(obj)
             longPreambleWaveform = obj.waveformBuffer(1:obj.Preamble_samples/2);
             
-            
-            
-            %if RX_State.CFO_Mode
-            %    % if(RX_State.ConstlationPlot)
-            %    % %% Display Fine CFO Error
-            %    % disp('Estimated Fine Epsilon: ');disp(Fine_Esti_Epsilon);
-            %    % %% Display Total CFO Error
-            %    % disp('Estimated CFO Epsilon: ');disp(Fine_Esti_Epsilon+Coarse_Esti_Epsilon);
-            %    % end
-            %
-            %end
-            
+            longPreamble_CP = longPreambleWaveform(1:(obj.GI_samples*2));
             longPreambleNoCP = longPreambleWaveform((obj.GI_samples*2)+1:end);
+            
+            
+            if obj.CFO_Mode
+               longPreambleNoCP = obj.CFO_Correction(longPreambleNoCP,obj.CoarseCFO,0,127);
+
+               obj.FineCFO = obj.FineCFOestmation(longPreambleNoCP(1:64),longPreambleNoCP(65:end));
+
+               if obj.DebugMode
+                    disp("Fine CFO Alpha (Hz): ");disp( (obj.FineCFO/(2*pi)) * obj.Sampling_Freq);
+                    disp("Total CFO Alpha (Hz): ");disp( ((obj.FineCFO+obj.CoarseCFO)/(2*pi)) * obj.Sampling_Freq);
+               end
+
+            end
+            
+            
             longPreamble_reshaped = reshape(longPreambleNoCP,obj.FFT_Size,2);
             longPreamble_FD = circshift(fft(longPreamble_reshaped),obj.FFT_Size/2);
             longPreambleSequance = obj.Gaurd_Remover(longPreamble_FD);
@@ -250,6 +265,12 @@ classdef IEEE802_11a_Receiver < handle
             % The Signal waveform should be known from long preamble
             signalWaveform = obj.waveformBuffer(1:obj.OFDM_Samples); %this line should be removed after finishing the long preamble function
             
+            if obj.CFO_Mode
+                signalWaveform = obj.CFO_Correction(signalWaveform, ...
+                                                    obj.CoarseCFO+obj.FineCFO, ...
+                                                    128,207);
+            end
+
             signal_CP = signalWaveform(1:obj.GI_samples); %#ok<NASGU>
             signalWaveformNoCP = signalWaveform(obj.GI_samples+1:end);
 
@@ -355,6 +376,13 @@ classdef IEEE802_11a_Receiver < handle
             %% Data Freq Domain
             dataWaveforms = obj.waveformBuffer(1:obj.OFDM_Samples*Nsys);
             
+            %% CFO Correction
+            if obj.CFO_Mode
+                dataWaveforms = obj.CFO_Correction(dataWaveforms, ...
+                                                    obj.CoarseCFO+obj.FineCFO, ...
+                                                    208,(Nsys*80)+207);
+            end
+
             dataWaveforms = reshape(dataWaveforms,obj.OFDM_Samples,Nsys);
             %dateWaveform_CP = dataWaveforms(1:obj.GI_samples,:); % data GI matrix
             dataWaveformNoCP = dataWaveforms(obj.GI_samples+1:end,:);
@@ -366,12 +394,24 @@ classdef IEEE802_11a_Receiver < handle
                 % find(round(signalFreqDoamin,1)~=round(obj.SignalOutput.SignalFreqDomain,1))
             end
             %% Data Gaurd Remove
-            
             dataActiveSC = IEEE802_11a_Receiver.Gaurd_Remover(dataFreqDoamin);
+
+            % plot the constellation
+            if (obj.CFO_Mode && obj.DebugMode)
+                figure("Name","After CFO Correction");
+                plot(dataActiveSC,'x');
+                title("Constellation After CFO Correction")
+            end
 
             %% Equalizing the Data field subcarriers
             if obj.EqualizerMode
                 dataActiveSC = obj.Equalizer(dataActiveSC,obj.EstimatedChannel,obj.EqualizerType);
+
+                if obj.DebugMode
+                    figure("Name","After Equalization");
+                    plot(dataActiveSC,'x');
+                    title("Constellation After Equalization")
+                end
             end
 
             %% Pilots Extraction
@@ -460,47 +500,23 @@ classdef IEEE802_11a_Receiver < handle
 
         end
         %% -----------------------------------------------------------------
-        function CoarseCFOestmation()
+        function Coarse_alpha = CoarseCFOestmation(STS_1,STS_2)
             %% Coarse CFO Estimation
-            %var1 = sum(imag(shortPreamble_FD(:,2) .* conj(shortPreamble_FD(:,1))));
-            %var2 = sum(real(shortPreamble_FD(:,2) .* conj(shortPreamble_FD(:,1))));
-            %Coarse_Esti_Epsilon = atan2(var1, var2) / (2 * pi*16);
-            %if(RX_State.ConstlationPlot)
-            %disp('Estimated Coarse Epsilon: ');disp(Coarse_Esti_Epsilon);
-            %end
+            autocorr = sum( conj(STS_1).*STS_2 );
+            Coarse_alpha = (1/16)*atan2( imag(autocorr) ,  real(autocorr) );
         end
         %% -----------------------------------------------------------------
-        function FineCFOestmation()
+        function Fine_alpha = FineCFOestmation(LTS_1,LTS_2)
             % Fine CFO Estimation
-            %CFO_longPreambleNoCP = longPreambleWaveform(33:end);
-            %CFO_longPreamble_reshaped = reshape(CFO_longPreambleNoCP,64,2);
-            %CFO_longPreamble_FD = fft(CFO_longPreamble_reshaped);
-           %
-            %var1 = sum(imag(CFO_longPreamble_FD(:,2) .* conj(CFO_longPreamble_FD(:,1))));
-            %var2 = sum(real(CFO_longPreamble_FD(:,2) .* conj(CFO_longPreamble_FD(:,1))));
-            %Fine_Esti_Epsilon = atan2(var1, var2) / (2 * pi*64);
+            autocorr = sum( conj(LTS_1).*LTS_2 );
+            Fine_alpha = (1/64)*atan2( imag(autocorr) ,  real(autocorr));
         end
         %% -----------------------------------------------------------------
-        function CFO_Correction()
-            %%% Coarse CFO Correction
-            %k = 0:length(waveform)-1;
-            %Phase_coarse = exp(-1j * k * 2 * pi * Coarse_Esti_Epsilon).';
-%
-            %%% Coarse Correction
-            %longPreambleWaveform = longPreambleWaveform .* Long_Phase_coarse;
-%
-            %%% Fine CFO Correction
-            %    k = 160:length(waveform)-1;
-            %    Phase_Fine = exp(-1j * k * 2 * pi * Fine_Esti_Epsilon).';
-            %    
-            %    Long_Phase_Fine = Phase_Fine(1:Preamble_samples-160);
-            %    Signal_Phase_Fine = Phase_Fine(Preamble_samples-160+1:Preamble_samples-160+OFDM_Samples);
-            %    Data_Phase_Fine = Phase_Fine(Preamble_samples-160+OFDM_Samples+1:end);
-            %
-            %    longPreambleWaveform = longPreambleWaveform.* Long_Phase_Fine;
-            %    signalInput.PhaseFine = Signal_Phase_Fine;
-            %    dataInput.PhaseFine = Data_Phase_Fine;
+        function Corrected_Waveform = CFO_Correction(Waveform,Alpha,start_index,end_index)
+            %% Coarse & Fine CFO Correction
+            Corrected_Waveform = Waveform.*exp(-1i*(start_index:end_index)' * Alpha );
         end
+
         %% -----------------------------------------------------------------
         function EstimatedChannel = ChannelEsmtation(LongPreamble)
             STDlongPreambleSequance = [ 1, 1, -1, -1, 1, 1, -1, 1, -1, 1, 1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, 1, 1, 1, 1,...
@@ -534,31 +550,10 @@ classdef IEEE802_11a_Receiver < handle
                     % % Apply MMSE equalizer to the Rx Long Preamble waveform
                     % long_1 = longPreambleSequance(:,1) .* MMSE;
                     % long_2 = longPreambleSequance(:,2) .* MMSE';
-            %
+
                     %signalInput.Equalizer_Q = MMSE;
                     %dataInput.Equalizer_Q = MMSE;
                 end
-
-                 %%% Equalization
-            %if RX_State.EqualizerMode
-            %    %% Plot Data Simpols befor equlization
-            %    if RX_State.ConstlationPlot
-            %        figure()
-            %        plot(dataActiveSC,'x')
-            %        title('Before Equalizing')
-            %    end
-            %    
-            %    %% Equalizing
-            %    dataActiveSC = dataActiveSC .* dataInput.Equalizer_Q;
-            % 
-            %    %% Plot Data Simpols after equlization
-            %    if RX_State.ConstlationPlot
-            %        figure()
-            %        plot(dataActiveSC,'x')
-            %        % title(RX_State.Equalizer)
-            %        title('After ZF Equalizing')
-            %    end
-            %end
         end
         %% -----------------------------------------------------------------
         function TrackingPhaseEstmation()

@@ -91,7 +91,7 @@ classdef IEEE802_11a_Effects < handle
             waveformCFO = obj.TransmitterOutput.waveform .* phase_shift;
 
             if(obj.DebugMode)
-                disp('CFO Efffect: ');disp(epsilon);
+                disp('CFO Efffect (Hz): ');disp(epsilon*Fs);
                 ActiveSC = IEEE802_11a_Effects.ActiveSC_Extract(obj.TransmitterOutput.waveform);
                 figure("Name","Befor CFO Effect");
                 plot(ActiveSC,'bx');
