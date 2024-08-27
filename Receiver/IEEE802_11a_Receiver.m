@@ -20,6 +20,7 @@ classdef IEEE802_11a_Receiver < handle
 
         % debuging
         DebugMode
+        TxLength
         ShortPreambleOutput
         LongPreambleOutput
         SignalOutput
@@ -64,6 +65,8 @@ classdef IEEE802_11a_Receiver < handle
        GI_samples = 0.8e-6*20e6;         % 0.8 u-sec
        Preamble_samples = 16e-6*20e6;    % 16 u-sec
 
+       CFO_N = 194;
+
        %SERVICE = [ 1 0 1 0 1 0 1 ]; %[1;0;1;1;1;0;1];
        
        %% Const Buffers
@@ -77,11 +80,16 @@ classdef IEEE802_11a_Receiver < handle
         function obj = IEEE802_11a_Receiver(Transmitter_Output)
             if(nargin == 1)
                 obj.Waveform = Transmitter_Output.waveform;
-                obj.DebugMode = Transmitter_Output.DebugMode;
-                obj.ShortPreambleOutput = Transmitter_Output.ShortPreamble;
-                obj.LongPreambleOutput = Transmitter_Output.LongPreamble;
-                obj.SignalOutput = Transmitter_Output.SignalOutput;
-                obj.DataOutput = Transmitter_Output.DataOutput;
+                obj.TxLength = Transmitter_Output.TxLength;
+                try
+                    obj.DebugMode = Transmitter_Output.DebugMode;
+                    obj.ShortPreambleOutput = Transmitter_Output.ShortPreamble;
+                    obj.LongPreambleOutput = Transmitter_Output.LongPreamble;
+                    obj.SignalOutput = Transmitter_Output.SignalOutput;
+                    obj.DataOutput = Transmitter_Output.DataOutput;
+                catch
+                    obj.DebugMode = 0;
+                end
             end
 
             obj.EqualizerType = "ZF";
@@ -100,12 +108,17 @@ classdef IEEE802_11a_Receiver < handle
         function RX_Data = ReceiveData(obj,Transmitter_Output)
 
             if nargin==2
-                obj.Waveform = Transmitter_Output.wavedorm;
-                obj.DebugMode = Transmitter_Output.DebugMode;
-                obj.ShortPreambleOutput = Transmitter_Output.ShortPreamble;
-                obj.LongPreambleOutput = Transmitter_Output.LongPreamble;
-                obj.SignalOutput = Transmitter_Output.SignalOutput;
-                obj.DataOutput = Transmitter_Output.DataOutput;
+                obj.Waveform = Transmitter_Output.waveform;
+                obj.TxLength = Transmitter_Output.TxLength;
+                try
+                    obj.DebugMode = Transmitter_Output.DebugMode;
+                    obj.ShortPreambleOutput = Transmitter_Output.ShortPreamble;
+                    obj.LongPreambleOutput = Transmitter_Output.LongPreamble;
+                    obj.SignalOutput = Transmitter_Output.SignalOutput;
+                    obj.DataOutput = Transmitter_Output.DataOutput;
+                catch
+                    obj.DebugMode = 0;
+                end
             end
 
 
@@ -181,7 +194,7 @@ classdef IEEE802_11a_Receiver < handle
                 end
                 estimatedPacketIndex=firstpeak_idx+16*peakcount+(firstpeak_idx-17);
                 
-                shortPreambleWaveform = obj.waveformBuffer(1:estimatedPacketIndex)
+                shortPreambleWaveform = obj.waveformBuffer(1:estimatedPacketIndex);
                 obj.waveformBuffer = obj.waveformBuffer(estimatedPacketIndex:end);
 
                 if obj.DebugMode
@@ -192,7 +205,7 @@ classdef IEEE802_11a_Receiver < handle
                 end
             else
                 shortPreambleWaveform = obj.Waveform(1:160);
-                obj.waveformBuffer = obj.Waveform(160:end);
+                obj.waveformBuffer = obj.Waveform(161:end);
             end
 
             %% Coars Estimation
@@ -218,7 +231,9 @@ classdef IEEE802_11a_Receiver < handle
             
             
             if obj.CFO_Mode
-               longPreambleNoCP = obj.CFO_Correction(longPreambleNoCP,obj.CoarseCFO,0,127);
+               longPreambleNoCP = obj.CFO_Correction(longPreambleNoCP, ...
+                                                     obj.CoarseCFO, ...
+                                                    obj.CFO_N,obj.CFO_N+127);
 
                obj.FineCFO = obj.FineCFOestmation(longPreambleNoCP(1:64),longPreambleNoCP(65:end));
 
@@ -249,12 +264,12 @@ classdef IEEE802_11a_Receiver < handle
                     % plot(1:N_TSc,STDlongPreambleSequance,'o');hold on;
                     % plot(1:N_TSc,ZF_long_1,'x');
                     subplot(2,1,2);
-                    plot(1:obj.N_TSc,abs(obj.EstimatedChannel));
+                    plot(1:obj.N_TSc,circshift(abs(obj.EstimatedChannel),32));
                     title('Estimated Channel')
                 end
             end
             
-            obj.waveformBuffer = obj.waveformBuffer((obj.Preamble_samples/2)+1:end);
+            obj.waveformBuffer = obj.waveformBuffer(161:end);
                 % longPreamble_2 =
         end
 
@@ -268,7 +283,8 @@ classdef IEEE802_11a_Receiver < handle
             if obj.CFO_Mode
                 signalWaveform = obj.CFO_Correction(signalWaveform, ...
                                                     obj.CoarseCFO+obj.FineCFO, ...
-                                                    128,207);
+                                                    obj.CFO_N+128, ...
+                                                    obj.CFO_N+128+79);
             end
 
             signal_CP = signalWaveform(1:obj.GI_samples); %#ok<NASGU>
@@ -339,7 +355,7 @@ classdef IEEE802_11a_Receiver < handle
             LENGTH_Bits = signalBits(17:-1:6)';
             LENGTH_Decimal = bin2dec(num2str(LENGTH_Bits ));
             obj.LENGTH = LENGTH_Decimal;    % 1-4095
-            if(obj.LENGTH ~= obj.SignalOutput.DataLength)
+            if(obj.LENGTH ~= obj.TxLength)
                 Error = MException('Reciver:PacketFaild','Signal-Field Wrong Data Length');
                 throw(Error)
             end
@@ -380,7 +396,8 @@ classdef IEEE802_11a_Receiver < handle
             if obj.CFO_Mode
                 dataWaveforms = obj.CFO_Correction(dataWaveforms, ...
                                                     obj.CoarseCFO+obj.FineCFO, ...
-                                                    208,(Nsys*80)+207);
+                                                    obj.CFO_N+128+80, ...
+                                                    (Nsys*80)+obj.CFO_N+128+79);
             end
 
             dataWaveforms = reshape(dataWaveforms,obj.OFDM_Samples,Nsys);
