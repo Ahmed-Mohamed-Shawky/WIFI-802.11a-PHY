@@ -45,13 +45,13 @@ classdef IEEE802_11a_Effects < handle
                 title("Noise Effect")
                 subplot(3,1,1)
                 plot(1:length(obj.TransmitterOutput.waveform),abs(obj.TransmitterOutput.waveform))
-                title("Waveform Before Noise")
+                title("Waveform Before Adding Noise")
                 subplot(3,1,2)
                 plot(1:length(Noise),abs(Noise))
                 title("Additive white Gaussian Noise")
                 subplot(3,1,3)
                 plot(1:length(waveformNoise),abs(waveformNoise))
-                title("Waveform After Noise")
+                title("Waveform After Adding Noise")
             end
             
             %% Saving waveform with noise effect
@@ -67,10 +67,10 @@ classdef IEEE802_11a_Effects < handle
                 figure("Name","STO Effect");
                 subplot(2,1,1);
                 plot(1:length(obj.TransmitterOutput.waveform),abs(obj.TransmitterOutput.waveform))
-                title("Waveform Before STO")
+                title("Waveform Before Adding STO")
                 subplot(2,1,2);
                 plot(1:length(waveformSTO),abs(waveformSTO))
-                title("Waveform After STO")
+                title("Waveform After Adding STO")
             end
             obj.TransmitterOutput.waveform = waveformSTO;
         end
@@ -95,52 +95,66 @@ classdef IEEE802_11a_Effects < handle
                 ActiveSC = IEEE802_11a_Effects.ActiveSC_Extract(obj.TransmitterOutput.waveform);
                 figure("Name","Befor CFO Effect");
                 plot(ActiveSC,'bx');
-                title("Constellation Before CFO")
+                title("Constellation Before Adding CFO")
                 ActiveSC = IEEE802_11a_Effects.ActiveSC_Extract(waveformCFO);
                 figure("Name","After CFO Effect");
                 plot(ActiveSC,'x');
-                title("Constellation After CFO")
+                title("Constellation After Adding CFO")
             end
 
             obj.TransmitterOutput.waveform = waveformCFO;
         end
 
-        function add_Channel(obj,MaxDelaySpread,Channel_Type,K_Factor)
-            %% MaxDelaySpread must be one of thies values 
-            %% [ 50 , 100 , 150 , 200 ]
-            %% depend on the channel model
+        function add_Channel(obj,Channel_Type,K_Factor_dB)
 
             %% K_Factor is 0 By defult for Rayleigh Channel
             %% K_Factor Must be bigger than 0 for Racian Channel
-            % MaxDelaySpread = 200;
+
+            Ts=1/20e6;              % sampling Rate
+            sigma_t=25e-9;          % RMS delay spread
+            lmax = ceil(10*sigma_t/Ts);  % Maximum number of paths
+            l=0:lmax-1; 
+            sigma02=(1-exp(-Ts/sigma_t))/(1-exp(-(lmax+1)*Ts/sigma_t)); % Power of the first tap
+            PDP = sigma02*exp(-l*Ts/sigma_t); %% power delay profile
 
             switch nargin
                 case 1
-                    MaxDelaySpread = 200;
                     Channel_Type = "Rayleigh";
-                    K_Factor = 0;
+                    K_Factor_dB = 0;
                 case 2
-                    Channel_Type = "Rayleigh";
-                    K_Factor = 0;
-                case 3
                     if isequal(Channel_Type,"Rayleigh")
-                        K_Factor = 0;
+                        K_Factor_dB = 0;
                     elseif isequal(Channel_Type,"Racian")
-                        K_Factor = 1;
+                        K_Factor_dB = 1;
                     end
+               case 3
+                   if isequal(Channel_Type,"Rayleigh")
+                        K_Factor_dB = 0;
+                   end
             end
 
             %% Channel Creation
-            paths = MaxDelaySpread/50; % Number of pathes
+
+            h =((randn(1,lmax)+1i*randn(1,lmax))/sqrt(2) )  .* sqrt(PDP);  %% channel impulse 
+
             if isequal(Channel_Type,"Rayleigh")
-                path_gains = (1/sqrt(2))*(randn(1, paths) + 1i * randn(1, paths));
+                path_gains = (1/sqrt(2))*(randn(1, lmax) + 1i * randn(1, lmax)) .* sqrt(PDP);
             elseif isequal(Channel_Type,"Racian")
-                % path_gains = ??
+                K = 10^(K_Factor_dB/10);
+                path_gains = sqrt(K/(K+1))+sqrt(1/(K+1)) ...
+                             * (1/sqrt(2))*(randn(1, lmax) + 1i * randn(1, lmax))...
+                             .* sqrt(PDP);
             end
             
             %% Add Channel Effect
             waveformChannel = conv(obj.TransmitterOutput.waveform,path_gains,'same');
             
+            % %% average power of the channel
+            % avg_pow_h=zeros(1,length(PDP));
+            % for k = 1:length(PDP)
+            % avg_pow_h(k)= mean(h(:,k).*conj(h(:,k)));
+            % end
+
             %% Channel + Effect Ploting 
             if (obj.DebugMode)
                 figure("Name","Channel Visualization")
@@ -154,10 +168,22 @@ classdef IEEE802_11a_Effects < handle
                 figure("Name","Channel Effect")
                 subplot(2,1,1)
                 plot(1:length(obj.TransmitterOutput.waveform),abs(obj.TransmitterOutput.waveform))
-                title("Waveform Before Channel")
+                title("Waveform Before Adding Channel")
                 subplot(2,1,2)
                 plot(1:length(waveformChannel),abs(waveformChannel))
-                title("Waveform After Channel")
+                title("Waveform After Adding Channel")
+
+                % figure;
+                % stem([0:length(PDP)-1],PDP,'ko');   %% plotting power delay profile
+                % title("Power delay profile ( Exponential distribution)");
+                % xlabel("Channel tap index");
+                % ylabel("power");
+                
+                % figure;
+                % stem([0:length(h)-1],avg_pow_h,'ro'); % plotting the channel taps vs power
+                % xlabel("Channel tap index");
+                % ylabel("power");
+                % title("Channel Impulse Response");
             end
             %% Save channel Effect
             obj.TransmitterOutput.waveform = waveformChannel;
