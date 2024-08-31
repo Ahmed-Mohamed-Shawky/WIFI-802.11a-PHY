@@ -65,7 +65,7 @@ classdef IEEE802_11a_Receiver < handle
        GI_samples = 0.8e-6*20e6;         % 0.8 u-sec
        Preamble_samples = 16e-6*20e6;    % 16 u-sec
 
-       CFO_N = 194;
+       CFO_N = 0;%194
 
        %SERVICE = [ 1 0 1 0 1 0 1 ]; %[1;0;1;1;1;0;1];
        
@@ -147,7 +147,7 @@ classdef IEEE802_11a_Receiver < handle
             %% Packet Detection
             if obj.PacketDetectionMode
                 %% SignalDetection
-                [startIndex, samplesEnergy] = obj.SignalDetection(obj.Waveform,0.01);
+                [startIndex, samplesEnergy] = obj.SignalDetection(obj.Waveform,0.002);
                 obj.waveformBuffer = obj.Waveform(startIndex:end);
 
                 if(obj.DebugMode)
@@ -182,17 +182,21 @@ classdef IEEE802_11a_Receiver < handle
                 previous_peak_val=0;
                 peakcount=0;
                 [~,firstpeak_idx]=max(XcorrOut(1:16));
-                for i = 1:16:240
+                % estimatedPacketIndex = 0;
+                peakVector=[];
+                for i = 1:16:160
                     [peak_val,peak_idx]=max(XcorrOut(i:i+15));
                     ispeak=peak_val-previous_peak_val;
                     previous_peak_val=peak_val;
-                    if (ispeak>-0.06 || ispeak>0.06)
+                    if (ispeak>-0.06 || ispeak<0.06)
+                        peakVector=[peakVector peak_idx];
                         peakcount=peakcount+1;
+                        % estimatedPacketIndex=estimatedPacketIndex+peak_idx+(16-peak_idx);
                     else
                         break
                     end
                 end
-                estimatedPacketIndex=firstpeak_idx+16*peakcount+(firstpeak_idx-17);
+                estimatedPacketIndex=sum( peakVector+(16-peakVector) )+firstpeak_idx;
                 
                 shortPreambleWaveform = obj.waveformBuffer(1:estimatedPacketIndex);
                 obj.waveformBuffer = obj.waveformBuffer(estimatedPacketIndex:end);
@@ -200,6 +204,10 @@ classdef IEEE802_11a_Receiver < handle
                 if obj.DebugMode
                     disp("Long Preample Start: ");disp(estimatedPacketIndex);
                     figure("Name","Packet Sync")
+                    subplot(2,1,1);
+                    plot(1:length(XcorrOut),abs(XcorrOut))
+                    title("Cross Corr-Out")
+                    subplot(2,1,2);
                     plot(1:length(obj.waveformBuffer(estimatedPacketIndex:end)),abs(obj.waveformBuffer(estimatedPacketIndex:end)))
                     title("Packet Sync Output")
                 end
@@ -241,7 +249,10 @@ classdef IEEE802_11a_Receiver < handle
                     disp("Fine CFO Alpha (Hz): ");disp( (obj.FineCFO/(2*pi)) * obj.Sampling_Freq);
                     disp("Total CFO Alpha (Hz): ");disp( ((obj.FineCFO+obj.CoarseCFO)/(2*pi)) * obj.Sampling_Freq);
                end
-
+               
+               longPreambleNoCP = obj.CFO_Correction(longPreambleNoCP, ...
+                                                     obj.FineCFO, ...
+                                                    obj.CFO_N,obj.CFO_N+127);
             end
             
             
@@ -493,10 +504,13 @@ classdef IEEE802_11a_Receiver < handle
     methods(Access = private,Static,Hidden)
         
         %% System Block Functions
-        function [start_index,sampleEnergy] = SignalDetection(waveform,Threshod)
-            
-            sampleEnergy = (vecnorm(waveform,1,2).^2);
-            start_index=find(sampleEnergy>Threshod);
+        function [start_index,powerWindow] = SignalDetection(waveform,Threshod)
+            sampleEnergy = mean((abs(waveform).^2),2);
+            powerWindow = zeros(length(sampleEnergy)-4,1);
+            for L =1 :length(sampleEnergy)-4
+                powerWindow(L)=sum(sampleEnergy(L:L+4))/5;
+            end
+            start_index=find(powerWindow>Threshod);
 
             if(isempty(start_index))
                 Error = MException('Reciver:PacketFaild','Signal Detection Faild');
