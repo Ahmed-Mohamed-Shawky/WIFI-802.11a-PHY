@@ -65,7 +65,7 @@ classdef IEEE802_11a_Receiver < handle
        GI_samples = 0.8e-6*20e6;         % 0.8 u-sec
        Preamble_samples = 16e-6*20e6;    % 16 u-sec
 
-       CFO_N = 0;%194
+       CFO_N = 192;%194
 
        %SERVICE = [ 1 0 1 0 1 0 1 ]; %[1;0;1;1;1;0;1];
        
